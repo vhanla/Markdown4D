@@ -1,0 +1,509 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <Package Version="6">
+    <Name Value="markdown4d_lcl"/>
+    <Type Value="RunAndDesignTime"/>
+    <Author Value="GDK Software"/>
+    <License Value="MIT"/>
+    <Description Value="Markdown4D markdown viewer and editor for LCL (Free Pascal / Lazarus)."/>
+    <Version Major="1"/>
+    <Files>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Ast.Builder.pas"/>
+        <UnitName Value="Markdown4D.Ast.Builder"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Ast.Interfaces.pas"/>
+        <UnitName Value="Markdown4D.Ast.Interfaces"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Ast.pas"/>
+        <UnitName Value="Markdown4D.Ast"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Color.Names.pas"/>
+        <UnitName Value="Markdown4D.Color.Names"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Consts.pas"/>
+        <UnitName Value="Markdown4D.Consts"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Defines.pas"/>
+        <UnitName Value="Markdown4D.Defines"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Extensions.Alerts.pas"/>
+        <UnitName Value="Markdown4D.Extensions.Alerts"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Extensions.Chart.pas"/>
+        <UnitName Value="Markdown4D.Extensions.Chart"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Extensions.Gfm.pas"/>
+        <UnitName Value="Markdown4D.Extensions.Gfm"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Extensions.Interfaces.pas"/>
+        <UnitName Value="Markdown4D.Extensions.Interfaces"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Extensions.Math.pas"/>
+        <UnitName Value="Markdown4D.Extensions.Math"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Extensions.Mermaid.pas"/>
+        <UnitName Value="Markdown4D.Extensions.Mermaid"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Extensions.Sample.pas"/>
+        <UnitName Value="Markdown4D.Extensions.Sample"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Extensions.Toc.pas"/>
+        <UnitName Value="Markdown4D.Extensions.Toc"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Highlighter.Diff.pas"/>
+        <UnitName Value="Markdown4D.Highlighter.Diff"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Highlighter.Interfaces.pas"/>
+        <UnitName Value="Markdown4D.Highlighter.Interfaces"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Highlighter.Json.pas"/>
+        <UnitName Value="Markdown4D.Highlighter.Json"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Highlighter.LineScanner.pas"/>
+        <UnitName Value="Markdown4D.Highlighter.LineScanner"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Highlighter.Pascal.pas"/>
+        <UnitName Value="Markdown4D.Highlighter.Pascal"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Highlighter.Sql.pas"/>
+        <UnitName Value="Markdown4D.Highlighter.Sql"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Highlighter.TokenBuilder.pas"/>
+        <UnitName Value="Markdown4D.Highlighter.TokenBuilder"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Highlighter.Xml.pas"/>
+        <UnitName Value="Markdown4D.Highlighter.Xml"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Html.Entities.pas"/>
+        <UnitName Value="Markdown4D.Html.Entities"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Html.Subset.pas"/>
+        <UnitName Value="Markdown4D.Html.Subset"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Math.Chemistry.pas"/>
+        <UnitName Value="Markdown4D.Math.Chemistry"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Math.Syntax.pas"/>
+        <UnitName Value="Markdown4D.Math.Syntax"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Parser.Blocks.pas"/>
+        <UnitName Value="Markdown4D.Parser.Blocks"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Parser.HtmlBlocks.pas"/>
+        <UnitName Value="Markdown4D.Parser.HtmlBlocks"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Parser.Incremental.pas"/>
+        <UnitName Value="Markdown4D.Parser.Incremental"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Parser.Inlines.pas"/>
+        <UnitName Value="Markdown4D.Parser.Inlines"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Parser.Interfaces.pas"/>
+        <UnitName Value="Markdown4D.Parser.Interfaces"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Parser.LineReader.pas"/>
+        <UnitName Value="Markdown4D.Parser.LineReader"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Parser.LineScanner.pas"/>
+        <UnitName Value="Markdown4D.Parser.LineScanner"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Parser.LinkSyntax.pas"/>
+        <UnitName Value="Markdown4D.Parser.LinkSyntax"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Parser.References.pas"/>
+        <UnitName Value="Markdown4D.Parser.References"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Parser.SourceMap.pas"/>
+        <UnitName Value="Markdown4D.Parser.SourceMap"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Parser.StagingBlock.pas"/>
+        <UnitName Value="Markdown4D.Parser.StagingBlock"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Pipeline.Configuration.pas"/>
+        <UnitName Value="Markdown4D.Pipeline.Configuration"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Pipeline.pas"/>
+        <UnitName Value="Markdown4D.Pipeline"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Renderer.Html.pas"/>
+        <UnitName Value="Markdown4D.Renderer.Html"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Text.FileFormat.pas"/>
+        <UnitName Value="Markdown4D.Text.FileFormat"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Text.Unescape.pas"/>
+        <UnitName Value="Markdown4D.Text.Unescape"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Text.UrlSafety.pas"/>
+        <UnitName Value="Markdown4D.Text.UrlSafety"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Toc.pas"/>
+        <UnitName Value="Markdown4D.Toc"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Version.pas"/>
+        <UnitName Value="Markdown4D.Version"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Writer.Emphasis.pas"/>
+        <UnitName Value="Markdown4D.Writer.Emphasis"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.Writer.Markdown.pas"/>
+        <UnitName Value="Markdown4D.Writer.Markdown"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Core/Markdown4D.pas"/>
+        <UnitName Value="Markdown4D"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.AutoScroll.Cursors.pas"/>
+        <UnitName Value="Markdown4D.AutoScroll.Cursors"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.AutoScroll.Icon.pas"/>
+        <UnitName Value="Markdown4D.AutoScroll.Icon"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.AutoScroll.pas"/>
+        <UnitName Value="Markdown4D.AutoScroll"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.DesignSample.pas"/>
+        <UnitName Value="Markdown4D.DesignSample"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Editor.Actions.pas"/>
+        <UnitName Value="Markdown4D.Editor.Actions"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Editor.ContextMenu.pas"/>
+        <UnitName Value="Markdown4D.Editor.ContextMenu"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Editor.Folding.pas"/>
+        <UnitName Value="Markdown4D.Editor.Folding"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Editor.Highlighter.pas"/>
+        <UnitName Value="Markdown4D.Editor.Highlighter"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Editor.Highlights.pas"/>
+        <UnitName Value="Markdown4D.Editor.Highlights"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Editor.InlineStyle.pas"/>
+        <UnitName Value="Markdown4D.Editor.InlineStyle"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Editor.Keys.pas"/>
+        <UnitName Value="Markdown4D.Editor.Keys"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Editor.Model.pas"/>
+        <UnitName Value="Markdown4D.Editor.Model"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Editor.PreviewPacer.pas"/>
+        <UnitName Value="Markdown4D.Editor.PreviewPacer"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Editor.PreviewScroll.pas"/>
+        <UnitName Value="Markdown4D.Editor.PreviewScroll"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Editor.Rows.pas"/>
+        <UnitName Value="Markdown4D.Editor.Rows"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Extensions.Chart.BlockOverride.pas"/>
+        <UnitName Value="Markdown4D.Extensions.Chart.BlockOverride"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Extensions.Chart.Layout.pas"/>
+        <UnitName Value="Markdown4D.Extensions.Chart.Layout"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Extensions.Mermaid.BlockOverride.pas"/>
+        <UnitName Value="Markdown4D.Extensions.Mermaid.BlockOverride"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Extensions.Mermaid.Layout.pas"/>
+        <UnitName Value="Markdown4D.Extensions.Mermaid.Layout"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Image.Decoder.pas"/>
+        <UnitName Value="Markdown4D.Image.Decoder"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Image.Filters.pas"/>
+        <UnitName Value="Markdown4D.Image.Filters"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Image.Glyphs.Gdi.pas"/>
+        <UnitName Value="Markdown4D.Image.Glyphs.Gdi"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Image.Glyphs.pas"/>
+        <UnitName Value="Markdown4D.Image.Glyphs"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Image.Rasterizer.pas"/>
+        <UnitName Value="Markdown4D.Image.Rasterizer"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Image.Svg.Native.pas"/>
+        <UnitName Value="Markdown4D.Image.Svg.Native"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Image.Svg.Path.pas"/>
+        <UnitName Value="Markdown4D.Image.Svg.Path"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Image.Svg.Xml.pas"/>
+        <UnitName Value="Markdown4D.Image.Svg.Xml"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Image.Svg.pas"/>
+        <UnitName Value="Markdown4D.Image.Svg"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Layout.AlertIcons.pas"/>
+        <UnitName Value="Markdown4D.Layout.AlertIcons"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Layout.BlockOverride.pas"/>
+        <UnitName Value="Markdown4D.Layout.BlockOverride"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Layout.Defaults.pas"/>
+        <UnitName Value="Markdown4D.Layout.Defaults"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Layout.Disclosure.pas"/>
+        <UnitName Value="Markdown4D.Layout.Disclosure"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Layout.DisplayList.pas"/>
+        <UnitName Value="Markdown4D.Layout.DisplayList"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Layout.Engine.pas"/>
+        <UnitName Value="Markdown4D.Layout.Engine"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Layout.ExtensionCanvas.pas"/>
+        <UnitName Value="Markdown4D.Layout.ExtensionCanvas"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Layout.HitTest.pas"/>
+        <UnitName Value="Markdown4D.Layout.HitTest"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Layout.InlineHtml.pas"/>
+        <UnitName Value="Markdown4D.Layout.InlineHtml"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Layout.Interfaces.pas"/>
+        <UnitName Value="Markdown4D.Layout.Interfaces"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Layout.MeasureCache.pas"/>
+        <UnitName Value="Markdown4D.Layout.MeasureCache"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Layout.Pointer.pas"/>
+        <UnitName Value="Markdown4D.Layout.Pointer"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Layout.Primitives.pas"/>
+        <UnitName Value="Markdown4D.Layout.Primitives"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Layout.Renderer.pas"/>
+        <UnitName Value="Markdown4D.Layout.Renderer"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Layout.ResizePacer.pas"/>
+        <UnitName Value="Markdown4D.Layout.ResizePacer"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Layout.SelectedMarkdown.pas"/>
+        <UnitName Value="Markdown4D.Layout.SelectedMarkdown"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Layout.SourceLineMap.pas"/>
+        <UnitName Value="Markdown4D.Layout.SourceLineMap"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Layout.SourceMapping.pas"/>
+        <UnitName Value="Markdown4D.Layout.SourceMapping"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Layout.TextAnchor.pas"/>
+        <UnitName Value="Markdown4D.Layout.TextAnchor"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Layout.TextSearch.pas"/>
+        <UnitName Value="Markdown4D.Layout.TextSearch"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Layout.Zoom.pas"/>
+        <UnitName Value="Markdown4D.Layout.Zoom"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Math.Font.pas"/>
+        <UnitName Value="Markdown4D.Math.Font"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Math.Layout.pas"/>
+        <UnitName Value="Markdown4D.Math.Layout"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Theme.pas"/>
+        <UnitName Value="Markdown4D.Theme"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Viewer.Clicks.pas"/>
+        <UnitName Value="Markdown4D.Viewer.Clicks"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Viewer.ContextMenu.pas"/>
+        <UnitName Value="Markdown4D.Viewer.ContextMenu"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Viewer.ImageDownloader.pas"/>
+        <UnitName Value="Markdown4D.Viewer.ImageDownloader"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Viewer.ImageSettings.pas"/>
+        <UnitName Value="Markdown4D.Viewer.ImageSettings"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Viewer.Lifetime.pas"/>
+        <UnitName Value="Markdown4D.Viewer.Lifetime"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Viewer.Model.pas"/>
+        <UnitName Value="Markdown4D.Viewer.Model"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Viewer.ScrollBar.pas"/>
+        <UnitName Value="Markdown4D.Viewer.ScrollBar"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Layout/Markdown4D.Viewer.Shared.pas"/>
+        <UnitName Value="Markdown4D.Viewer.Shared"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Fpc/Markdown4D.Fpc.Compat.pas"/>
+        <UnitName Value="Markdown4D.Fpc.Compat"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Fpc/Markdown4D.Fpc.CompatImpl.pas"/>
+        <UnitName Value="Markdown4D.Fpc.CompatImpl"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Fpc/Markdown4D.Fpc.Json.pas"/>
+        <UnitName Value="Markdown4D.Fpc.Json"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Fpc/System.Net.HttpClient.pas"/>
+        <UnitName Value="System.Net.HttpClient"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Fpc/System.Net.URLClient.pas"/>
+        <UnitName Value="System.Net.URLClient"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Lcl/Markdown4D.Lcl.AutoScroll.pas"/>
+        <UnitName Value="Markdown4D.Lcl.AutoScroll"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Lcl/Markdown4D.Lcl.Editor.pas"/>
+        <UnitName Value="Markdown4D.Lcl.Editor"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Lcl/Markdown4D.Lcl.Glyphs.pas"/>
+        <UnitName Value="Markdown4D.Lcl.Glyphs"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Lcl/Markdown4D.Lcl.ImageDecoder.pas"/>
+        <UnitName Value="Markdown4D.Lcl.ImageDecoder"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Lcl/Markdown4D.Lcl.MathFont.pas"/>
+        <UnitName Value="Markdown4D.Lcl.MathFont"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Lcl/Markdown4D.Lcl.Painter.pas"/>
+        <UnitName Value="Markdown4D.Lcl.Painter"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Lcl/Markdown4D.Lcl.Register.pas"/>
+        <UnitName Value="Markdown4D.Lcl.Register"/>
+      </Item>
+      <Item>
+        <Filename Value="../build/fpc/Lcl/Markdown4D.Lcl.Viewer.pas"/>
+        <UnitName Value="Markdown4D.Lcl.Viewer"/>
+      </Item>
+    </Files>
+    <RequiredPkgs>
+      <Item>
+        <PackageName Value="LCL"/>
+      </Item>
+    </RequiredPkgs>
+    <CompilerOptions>
+      <Version Value="11"/>
+      <SearchPaths>
+        <OtherUnitFiles Value="../build/fpc/Core;../build/fpc/Layout;../build/fpc/Fpc;../build/fpc/Lcl"/>
+        <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
+      </SearchPaths>
+    </CompilerOptions>
+  </Package>
+</CONFIG>

@@ -1,0 +1,2621 @@
+unit Markdown4D.Lcl.Editor;
+
+{$I ../Markdown4D.Fpc.inc}
+
+// ============================================================================
+//  Markdown4D.Lcl.Editor
+//
+//  Free Pascal / Lazarus (LCL) counterpart of Markdown4D.Vcl.Editor: a code
+//  editor for markdown with a live preview, fold markers, match highlighting
+//  and the same formatting commands as the VCL control.
+//
+//  Everything the editor knows about markdown lives in the neutral
+//  Markdown4D.Editor.* units, so this unit is the widget shell: rows and
+//  metrics, painting, the scrollbar, the caret, the clipboard, mouse and key
+//  handling, the preview timer and the zoom/wrap pacers.
+//
+//  Where the platform had to change, and why:
+//
+//    * SCROLLING -- the VCL control asked for a WS_VSCROLL window style and
+//      drove the native bar with SetScrollInfo/WM_VSCROLL.  LCL's GTK3 widgets
+//      only grow a scrollbar on a TScrollingWinControl, so the editor derives
+//      from that and drives its VertScrollBar.  ScrollBy is overridden to
+//      repaint instead of blitting, and Paint draws the buffer at the scroll
+//      offset, because GTK3's scrolling window moves the GtkLayout bin window
+//      and the canvas origin is therefore the top of the visible slice.
+//
+//    * CARET -- Winapi's CreateCaret/SetCaretPos/ShowCaret map one for one
+//      onto LCLIntf's, which the GTK3 widgetset implements with a real blinking
+//      caret drawn on the container widget.
+//
+//    * CLIPBOARD -- VCL's CF_UNICODETEXT format and EClipboardException have
+//      no LCL equivalent; the text crosses as UTF-8 and a held clipboard raises
+//      a plain exception that this unit treats as a copy that did not happen.
+//
+//    * THEMING -- the VCL style hook that darkened the scrollbar has no LCL
+//      equivalent; the widgetset paints the bar.
+//
+//    * NO INLINE DECLARATIONS -- see Markdown4D.Fpc.inc: locals and constants
+//      are hoisted and loop variables declared, because FPC has no inline
+//      var/const/for-var.
+// ============================================================================
+
+interface
+
+uses
+  Classes,
+  Types,
+  Generics.Collections,
+  LMessages,
+  LCLType,
+  Controls,
+  Graphics,
+  ExtCtrls,
+  Menus,
+  Forms,
+  Markdown4D.Ast.Interfaces,
+  Markdown4D.Layout.Interfaces,
+  Markdown4D.Theme,
+  Markdown4D.Editor.Model,
+  Markdown4D.Editor.Rows,
+  Markdown4D.Editor.Keys,
+  Markdown4D.Editor.Actions,
+  Markdown4D.Editor.ContextMenu,
+  Markdown4D.Editor.Highlights,
+  Markdown4D.Editor.Highlighter,
+  Markdown4D.Viewer.Lifetime,
+  Markdown4D.Viewer.Clicks,
+  Markdown4D.Editor.PreviewPacer,
+  Markdown4D.Layout.ResizePacer,
+  Markdown4D.Layout.Zoom,
+  Markdown4D.Layout.Pointer,
+  Markdown4D.AutoScroll,
+  Markdown4D.Lcl.AutoScroll,
+  Markdown4D.Lcl.Painter,
+  Markdown4D.Lcl.Viewer;
+
+type
+  // Fired whenever either pane scrolls while a preview is linked, reporting the
+  // source line now at the top. Hosts use it to keep an outline/ToC in sync.
+  TMarkdownSyncScrollEvent = procedure(Sender: TObject; const SourceLine: Integer) of object;
+
+  TMarkdownEditor = class(TScrollingWinControl, IMarkdownAutoScrollTarget)
+  private
+    const
+      // How long an editor waits for another process to let go of the
+      // clipboard before treating the request as one that did not happen.
+      ClipboardAttempts = 20;
+      ClipboardPauseMilliseconds = 25;
+      DefaultControlWidth = 400;
+      DefaultControlHeight = 300;
+      SelectionFillColor = TLayoutColor($402F81F7);
+      MatchFillColor = TLayoutColor($55E3B341);
+      MinimumWrapWidthDips = 48;
+      FoldMarkerWidthDips = 14;
+      DeleteChar = #127;
+      DefaultIndentWidth = 2;
+      DragThresholdPx = 4;
+      MenuSeparatorCaption = '-';
+    var
+      FLifetime: IMarkdownViewerLifetime;
+      FModel: TMarkdownEditorModel;
+      FHighlighter: TMarkdownSourceHighlighter;
+      FMatches: TMarkdownEditorHighlights;
+      FTheme: TMarkdownTheme;
+      FOwnsTheme: Boolean;
+      FThemePreset: TMarkdownThemePreset;
+      FDesignSampleActive: Boolean;
+      FMeasureBitmap: TBitmap;
+      FMeasurePainter: TMarkdownLclPainter;
+      FMeasurePainterLifetime: IPainter;
+      FBuffer: TBitmap;
+      FScrollOffset: Integer;
+      FUpdatingScrollBar: Boolean;
+      FIndentWidth: Integer;
+      FShowLineNumbers: Boolean;
+      FSelecting: Boolean;
+      FSelectionAnchor: Integer;
+      FDragPending: Boolean;
+      FDraggingSelection: Boolean;
+      FDragOrigin: TPoint;
+      FDragOffset: Integer;
+      FContextMenu: TPopupMenu;
+      FClickCount: Integer;
+      FClickGesture: TMarkdownClickGesture;
+      FLastClickTicks: QWord;
+      FLastClickPos: TPoint;
+      FDragPoint: TPoint;
+      FAutoScrollTimer: TTimer;
+      FPreview: TMarkdownViewer;
+      FPreviewTimer: TTimer;
+      FLastPreviewUpdateMilliseconds: Int64;
+      FWrapTimer: TTimer;
+      FWrapPacer: TMarkdownResizePacer;
+      FLastWrapMilliseconds: Int64;
+      FZoom: Integer;
+      FPendingZoom: Integer;
+      FZoomTimer: TTimer;
+      FZoomPacer: TMarkdownResizePacer;
+      FAppliedWrapWidth: Integer;
+      FPreviewDirty: Boolean;
+      FUpdatingPreview: Boolean;
+      FSyncScroll: Boolean;
+      FAutoScroller: TMarkdownLclAutoScroller;
+      FAutoScrollRemainder: Single;
+      FSyncing: Boolean;
+      FRowModel: TMarkdownEditorRows;
+      FRows: TArray<TVisualRow>;
+      FOnChange: TNotifyEvent;
+      FOnScroll: TNotifyEvent;
+      FOnAutoScrollChange: TNotifyEvent;
+      FOnZoomChange: TNotifyEvent;
+      FOnSyncScroll: TMarkdownSyncScrollEvent;
+    procedure HandleModelChange(const Sender: TObject; const Range: TEditorReplaceRange);
+    procedure HandlePreviewTimer(Sender: TObject);
+    class function HasPendingKeystrokes: Boolean; static;
+    procedure HandleAutoScrollTimer(Sender: TObject);
+    function RegisterClick(const X, Y: Integer): Integer;
+    procedure UpdateSelectionToPoint(const X, Y: Integer);
+    procedure UpdateAutoScroll(const X, Y: Integer);
+    procedure SchedulePreviewUpdate;
+    procedure SetPreview(const Value: TMarkdownViewer);
+    procedure UnhookPreviewScroll;
+    procedure HandleInternalPreviewScroll(Sender: TObject);
+    procedure SyncPreviewToEditor;
+    procedure KeepCaretLineInPreview;
+    function PreviewOffsetShowingLine(const SourceLine: Integer): Single;
+    function TryGetVisibleCaretLine(out CaretLine: Integer): Boolean;
+    procedure RestorePreviewScroll(const PreviousOffset: Single);
+    procedure DoSyncScroll(const SourceLine: Integer);
+    procedure RenderContent(const TargetCanvas: TCanvas; const TargetWidth, TargetHeight, PixelsPerInch,
+      ScrollY: Integer);
+    procedure RebuildRows;
+    procedure ApplyWrapWidth;
+    procedure ApplyWrapWidthNow;
+    procedure HandleWrapTimer(Sender: TObject);
+    function WrapWidthPx: Integer;
+    function RowCount: Integer;
+    function RowIndexOfOffset(const Offset: Integer): Integer;
+    function OffsetAtRowX(const RowIndex, TargetX: Integer): Integer;
+    function RowText(const Row: TVisualRow): string;
+    procedure DrawRowSelection(const Painter: IPainter; const Row: TVisualRow;
+      const TextLeft, Top, TargetWidth: Integer);
+    procedure DrawRowMatches(const Painter: IPainter; const Row: TVisualRow; const TextLeft, Top: Integer);
+    procedure DrawRowTokens(const Painter: IPainter; const Row: TVisualRow; const LineText: string;
+      const Tokens: TArray<TMarkdownSourceToken>; const TextLeft, Top: Integer);
+    procedure DrawGutterNumber(const Painter: IPainter; const LineIndex, GutterWidth, Top: Integer);
+    procedure DrawFoldMarker(const Painter: IPainter; const GutterWidth, Top: Integer; const Collapsed: Boolean);
+    function HandleFoldClick(const X, Y: Integer): Boolean;
+    function BeginSelectionDrag(const X, Y, Offset: Integer): Boolean;
+    procedure UpdateSelectionDrag(const X, Y: Integer);
+    function FinishSelectionDrag(const X, Y: Integer): Boolean;
+    procedure RaiseClick(const Kind: TMarkdownClickKind);
+    procedure ShowContextMenu(const X, Y: Integer);
+    procedure HandleContextItemClick(Sender: TObject);
+    function ClipboardHasText: Boolean;
+    class function TryReadClipboard(out Value: string): Boolean; static;
+    class function TryWriteClipboard(const Value: string): Boolean; static;
+    function TokenColor(const Kind: TMarkdownSourceTokenKind): TLayoutColor;
+    function GutterWidthPx(const Painter: IPainter; const PixelsPerInch: Integer): Integer;
+    function FoldGutterWidthPx(const PixelsPerInch: Integer): Integer;
+    function CodeFont: TMarkdownFontStyle;
+    procedure SetZoom(const Value: Integer);
+    procedure StepZoom(const Percent: Integer);
+    procedure ApplyZoomNow;
+    procedure HandleZoomTimer(Sender: TObject);
+    function LineHeightPx: Integer;
+    function VisibleLineCount: Integer;
+    function TextLeftPx: Integer;
+    function CaretWidthPx: Integer;
+    function ContentPixelsPerInch: Integer;
+    function LineTextAt(const LineIndex: Integer): string;
+    function LineStartOffset(const LineIndex: Integer): Integer;
+    function OffsetFromPoint(const X, Y: Integer): Integer;
+    function CurrentAnchor: Integer;
+    function ContentHeightPx: Integer;
+    function MaxScrollOffset: Integer;
+    procedure SetScrollOffset(const Value: Integer);
+    procedure ScrollCaretIntoView;
+    procedure RevealSelection;
+    procedure UpdateScrollBar;
+    procedure UpdateCaret;
+    function CaretPixelPos: TPoint;
+    procedure RecreateCaret;
+    procedure RefreshAfterEdit;
+    procedure MoveVertical(const RowDelta: Integer; const Extend: Boolean);
+    procedure SetCaretTo(const Offset: Integer; const Extend: Boolean);
+    procedure CopyToClipboard;
+    procedure CutToClipboard;
+    procedure PasteFromClipboard;
+    procedure EnsureBufferSize;
+    procedure RecomputeMetrics;
+    function GetText: string;
+    procedure SetText(const Value: string);
+    function IsTextStored: Boolean;
+    procedure SetThemePreset(const Value: TMarkdownThemePreset);
+    procedure EnsureDesignSample;
+    function GetCaretPosition: Integer;
+    procedure SetCaretPosition(const Value: Integer);
+    function GetSelectedText: string;
+    procedure SetTheme(const Value: TMarkdownTheme);
+    procedure SetShowLineNumbers(const Value: Boolean);
+    procedure WMVScroll(var Message: TLMVScroll); message LM_VSCROLL;
+    procedure WMEraseBkgnd(var Message: TLMEraseBkgnd); message LM_ERASEBKGND;
+    procedure WMGetDlgCode(var Message: TLMGetDlgCode); message LM_GETDLGCODE;
+    procedure WMSetFocus(var Message: TLMSetFocus); message LM_SETFOCUS;
+    procedure CNKeyDown(var Message: TLMKeyDown); message CN_KEYDOWN;
+    procedure WMKillFocus(var Message: TLMKillFocus); message LM_KILLFOCUS;
+    function GetAutoScrollEnabled: Boolean;
+    function GetIsAutoScrolling: Boolean;
+    procedure PaintAutoScrollOrigin;
+    procedure SetAutoScrollEnabled(const Value: Boolean);
+    function CanAutoScroll: Boolean;
+    procedure AutoScrollBy(const Delta: Single);
+    procedure AutoScrollChanged;
+
+  protected
+    procedure Notification(AComponent: TComponent; Operation: TOperation); override;
+    procedure Resize; override;
+    procedure ChangeScale(Multiplier, Divider: Integer); override;
+    procedure Paint; override;
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
+    procedure MouseMove(Shift: TShiftState; X, Y: Integer); override;
+    procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
+    function DoMouseWheel(Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean; override;
+    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
+    procedure DoContextPopup(MousePos: TPoint; var Handled: Boolean); override;
+    function ApplyKeyStroke(const Stroke: TEditorKeyStroke): Boolean;
+    procedure UTF8KeyPress(var UTF8Key: TUTF8Char); override;
+
+  public
+    constructor Create(Owner: TComponent); override;
+    destructor Destroy; override;
+    // The editor paints the text itself, from its own offset, so the widgetset
+    // must not scroll (blit) the window behind its back.
+    procedure ScrollBy(DeltaX, DeltaY: Integer); override;
+    procedure ExecuteCommand(const Command: TEditorCommand);
+    // Inserts Value at the caret, replacing the selection when there is one.
+    procedure InsertText(const Value: string);
+    procedure SelectAll;
+    procedure ZoomIn;
+    procedure ZoomOut;
+    procedure ResetZoom;
+    // Puts the selection on CharacterCount characters starting at StartOffset,
+    // counted from 0 as the caret is, and shows them.
+    procedure SelectRange(const StartOffset, CharacterCount: Integer);
+    // Moves the selection the reader made in the attached preview onto the
+    // same characters here, so a formatting command changes what was pointed
+    // at instead of wherever the caret was left. False when the preview holds
+    // no selection, or when it still shows an older version of the text, in
+    // which case the offsets it hands out belong to another document.
+    function TryAdoptPreviewSelection: Boolean;
+    procedure Indent;
+    procedure Outdent;
+    procedure DeleteWordLeft;
+    // Takes over Value as the new content through the smallest possible edit, so
+    // undo history, caret and selection survive. Returns False when the text was
+    // already identical.
+    function MergeText(const Value: string): Boolean;
+    procedure Undo;
+    procedure Redo;
+    function CanUndo: Boolean;
+    function CanRedo: Boolean;
+    procedure AttachPreview(const Viewer: TMarkdownViewer);
+    procedure DetachPreview;
+    procedure FlushPreview;
+    procedure PaintTo(const Bitmap: TBitmap);
+    function FirstVisibleSourceLine: Integer;
+    function SourceLineStartOffset(const LineIndex: Integer): Integer;
+    procedure ScrollToSourceLine(const LineIndex: Integer);
+    function SaveEditState: IMarkdownEditorState;
+    procedure LoadEditState(const State: IMarkdownEditorState);
+    // Paints every occurrence of Needle, so a find bar can show all hits at
+    // once. The marks follow later edits until they are cleared.
+    procedure HighlightMatches(const Needle: string); overload;
+    procedure HighlightMatches(const Needle: string; const Options: TMarkdownFindOptions); overload;
+    procedure ClearHighlights;
+    function HighlightCount: Integer;
+    function FindMatchCount(const Needle: string): Integer; overload;
+    function FindMatchCount(const Needle: string; const Options: TMarkdownFindOptions): Integer; overload;
+    // Which match the selection is, counted from 0, for a "3 of 12"; -1 when
+    // the selection is not a match.
+    function FindMatchIndex(const Needle: string; const Options: TMarkdownFindOptions): Integer;
+    function FindNext(const Needle: string): Boolean; overload;
+    function FindNext(const Needle: string; const Options: TMarkdownFindOptions): Boolean; overload;
+    function FindPrevious(const Needle: string; const Options: TMarkdownFindOptions): Boolean;
+    function ReplaceCurrent(const Needle, Replacement: string; const Options: TMarkdownFindOptions): Boolean;
+    function ReplaceAll(const Needle, Replacement: string; const Options: TMarkdownFindOptions): Integer;
+    property CaretPosition: Integer read GetCaretPosition write SetCaretPosition;
+    property SelectedText: string read GetSelectedText;
+    property IsAutoScrolling: Boolean read GetIsAutoScrolling;
+    property Theme: TMarkdownTheme read FTheme write SetTheme;
+
+  published
+    property Text: string read GetText write SetText stored IsTextStored;
+    property ThemePreset: TMarkdownThemePreset read FThemePreset write SetThemePreset
+      default TMarkdownThemePreset.Light;
+    property ShowLineNumbers: Boolean read FShowLineNumbers write SetShowLineNumbers default False;
+    // Spaces inserted by Tab and removed by Shift+Tab.
+    property IndentWidth: Integer read FIndentWidth write FIndentWidth default DefaultIndentWidth;
+    // In percent: the text, its line height and the gutter grow with it.
+    // Ctrl+wheel and Ctrl+Plus/Minus step through the levels browsers use,
+    // Ctrl+0 resets it. The line at the top of the view stays there.
+    property Zoom: Integer read FPendingZoom write SetZoom default TMarkdownZoom.DefaultPercent;
+    property OnZoomChange: TNotifyEvent read FOnZoomChange write FOnZoomChange;
+    // Link an editor to a viewer at design time to get a live preview and, when
+    // SyncScroll is on, two-way scroll synchronisation between the panes.
+    property Preview: TMarkdownViewer read FPreview write SetPreview;
+    property SyncScroll: Boolean read FSyncScroll write FSyncScroll default True;
+    // A middle click scrolls the text by the distance of the pointer from
+    // where it was pressed, until the next click, key or wheel turn.
+    property AutoScroll: Boolean read GetAutoScrollEnabled write SetAutoScrollEnabled default True;
+    property Align;
+    property Anchors;
+    property Constraints;
+    property Enabled;
+    property PopupMenu;
+    property ShowHint;
+    property TabOrder;
+    property TabStop;
+    property Visible;
+    property OnChange: TNotifyEvent read FOnChange write FOnChange;
+    property OnScroll: TNotifyEvent read FOnScroll write FOnScroll;
+    property OnClick;
+    property OnDblClick;
+    property OnMouseDown;
+    property OnMouseMove;
+    property OnMouseUp;
+    property OnAutoScrollChange: TNotifyEvent read FOnAutoScrollChange write FOnAutoScrollChange;
+    property OnSyncScroll: TMarkdownSyncScrollEvent read FOnSyncScroll write FOnSyncScroll;
+  end;
+
+implementation
+
+uses
+  SysUtils,
+  Math,
+  Clipbrd,
+  LCLIntf,
+  Markdown4D.Math.Font,
+  Markdown4D.DesignSample,
+  Markdown4D.Editor.PreviewScroll,
+  Markdown4D.Layout.Defaults,
+  // Self-registering bridges: the SVG rasterizer, the image decoder, the
+  // FreeType glyph outliner and the bundled math font.  Using them is what
+  // makes them part of the build.
+  Markdown4D.Image.Svg.Native,
+  Markdown4D.Lcl.ImageDecoder,
+  Markdown4D.Lcl.Glyphs,
+  Markdown4D.Lcl.MathFont;
+
+constructor TMarkdownEditor.Create(Owner: TComponent);
+begin
+  inherited Create(Owner);
+
+  TMarkdownMathFont.EnsureInstalled;
+
+  FLifetime := TMarkdownViewerLifetime.Create;
+
+  // The control decides itself which release is a click; see RaiseClick.
+  ControlStyle := ControlStyle + [csOpaque, csCaptureMouse] - [csClickEvents];
+  Width := DefaultControlWidth;
+  Height := DefaultControlHeight;
+  TabStop := True;
+  // The bar is driven from UpdateScrollBar; no auto-range computation may run
+  // behind it and overwrite the content size the editor reports.
+  VertScrollBar.Visible := True;
+
+  FTheme := TMarkdownTheme.CreateLight;
+  FOwnsTheme := True;
+
+  FModel := TMarkdownEditorModel.Create;
+  FModel.OnChange := HandleModelChange;
+  FRowModel := TMarkdownEditorRows.Create(FModel,
+    function(const Text: string): Single
+    begin
+      Result := Round(FMeasurePainter.MeasureText(Text, CodeFont).Width);
+    end);
+  FHighlighter := TMarkdownSourceHighlighter.Create;
+  FMatches := TMarkdownEditorHighlights.Create;
+  FSyncScroll := True;
+  FIndentWidth := DefaultIndentWidth;
+
+  FMeasureBitmap := TBitmap.Create;
+  FMeasureBitmap.SetSize(1, 1);
+  FMeasurePainter := TMarkdownLclPainter.Create(FMeasureBitmap.Canvas, ContentPixelsPerInch);
+  FMeasurePainterLifetime := FMeasurePainter;
+
+  FBuffer := TBitmap.Create;
+
+  FPreviewTimer := TTimer.Create(Self);
+  FPreviewTimer.Enabled := False;
+  FPreviewTimer.Interval := PreviewDebounceIntervalMilliseconds;
+  FPreviewTimer.OnTimer := HandlePreviewTimer;
+
+  FWrapTimer := TTimer.Create(Self);
+  FWrapTimer.Enabled := False;
+  FWrapTimer.Interval := TMarkdownResizePacer.SettleMilliseconds;
+  FWrapTimer.OnTimer := HandleWrapTimer;
+
+  FZoom := TMarkdownZoom.DefaultPercent;
+  FPendingZoom := TMarkdownZoom.DefaultPercent;
+  FZoomTimer := TTimer.Create(Self);
+  FZoomTimer.Enabled := False;
+  FZoomTimer.Interval := TMarkdownResizePacer.SettleMilliseconds;
+  FZoomTimer.OnTimer := HandleZoomTimer;
+
+  FAutoScrollTimer := TTimer.Create(Self);
+  FAutoScrollTimer.Enabled := False;
+  FAutoScrollTimer.Interval := AutoScrollIntervalMilliseconds;
+  FAutoScrollTimer.OnTimer := HandleAutoScrollTimer;
+
+  FAutoScroller := TMarkdownLclAutoScroller.Create(Self, Self);
+
+  RebuildRows;
+end;
+
+destructor TMarkdownEditor.Destroy;
+begin
+  FAutoScroller.Free;
+  FLifetime.Shutdown;
+  FPreview := nil;
+  if FPreviewTimer <> nil then
+    FPreviewTimer.Enabled := False;
+  if FAutoScrollTimer <> nil then
+    FAutoScrollTimer.Enabled := False;
+
+  FHighlighter.Free;
+  FMatches.Free;
+  FRowModel.Free;
+  FModel.Free;
+  FMeasurePainter := nil;
+  FMeasurePainterLifetime := nil;
+  FMeasureBitmap.Free;
+  FBuffer.Free;
+  if FOwnsTheme then
+    FTheme.Free;
+
+  inherited Destroy;
+end;
+
+procedure TMarkdownEditor.ExecuteCommand(const Command: TEditorCommand);
+begin
+  FModel.ExecuteCommand(Command);
+  RefreshAfterEdit;
+end;
+
+procedure TMarkdownEditor.InsertText(const Value: string);
+begin
+  FModel.Insert(Value);
+  RefreshAfterEdit;
+end;
+
+procedure TMarkdownEditor.SelectAll;
+begin
+  FModel.SelectAll;
+  RefreshAfterEdit;
+  Invalidate;
+end;
+
+procedure TMarkdownEditor.SelectRange(const StartOffset, CharacterCount: Integer);
+begin
+  FModel.SetSelection(StartOffset, CharacterCount);
+  RevealSelection;
+  RefreshAfterEdit;
+  Invalidate;
+end;
+
+function TMarkdownEditor.TryAdoptPreviewSelection: Boolean;
+var
+  IsPreviewCurrent: Boolean;
+  Segment: TMarkdownSegment;
+begin
+  Result := False;
+  if FPreview = nil then
+    Exit;
+
+  IsPreviewCurrent := (FPreview.Text = FModel.Text);
+  if not IsPreviewCurrent then
+    Exit;
+
+  if not FPreview.TryGetSelectionSourceSegment(Segment) then
+    Exit;
+
+  FModel.SelectTextRange(Segment.StartOffset - 1, Segment.Length);
+  if not FModel.HasSelection then
+    Exit;
+
+  RevealSelection;
+  RefreshAfterEdit;
+  Invalidate;
+
+  Result := True;
+end;
+
+procedure TMarkdownEditor.Indent;
+begin
+  TMarkdownEditorActions.Indent(FModel, FIndentWidth);
+  RefreshAfterEdit;
+end;
+
+procedure TMarkdownEditor.Outdent;
+begin
+  TMarkdownEditorActions.Outdent(FModel, FIndentWidth);
+  RefreshAfterEdit;
+end;
+
+procedure TMarkdownEditor.DeleteWordLeft;
+begin
+  FModel.DeleteWordLeft;
+  RefreshAfterEdit;
+end;
+
+function TMarkdownEditor.MergeText(const Value: string): Boolean;
+begin
+  FDesignSampleActive := False;
+
+  Result := FModel.MergeText(Value);
+  if not Result then
+    Exit;
+
+  RebuildRows;
+  RefreshAfterEdit;
+end;
+
+procedure TMarkdownEditor.Undo;
+begin
+  FModel.Undo;
+  RefreshAfterEdit;
+end;
+
+procedure TMarkdownEditor.Redo;
+begin
+  FModel.Redo;
+  RefreshAfterEdit;
+end;
+
+function TMarkdownEditor.CanUndo: Boolean;
+begin
+  Result := FModel.CanUndo;
+end;
+
+function TMarkdownEditor.CanRedo: Boolean;
+begin
+  Result := FModel.CanRedo;
+end;
+
+procedure TMarkdownEditor.SetPreview(const Value: TMarkdownViewer);
+begin
+  if Value = FPreview then
+    Exit;
+
+  AttachPreview(Value);
+end;
+
+procedure TMarkdownEditor.UnhookPreviewScroll;
+var
+  Ours: TNotifyEvent;
+begin
+  if FPreview = nil then
+    Exit;
+
+  Ours := HandleInternalPreviewScroll;
+  if (TMethod(FPreview.OnScroll).Code = TMethod(Ours).Code) and
+     (TMethod(FPreview.OnScroll).Data = TMethod(Ours).Data) then
+    FPreview.OnScroll := nil;
+end;
+
+procedure TMarkdownEditor.AttachPreview(const Viewer: TMarkdownViewer);
+begin
+  if FPreview <> nil then
+  begin
+    FPreview.RemoveFreeNotification(Self);
+    UnhookPreviewScroll;
+  end;
+
+  FPreview := Viewer;
+  if FPreview <> nil then
+  begin
+    FPreview.FreeNotification(Self);
+    FPreview.OnScroll := HandleInternalPreviewScroll;
+  end;
+
+  FPreviewDirty := True;
+  FlushPreview;
+end;
+
+procedure TMarkdownEditor.DetachPreview;
+begin
+  if FPreview <> nil then
+  begin
+    FPreview.RemoveFreeNotification(Self);
+    UnhookPreviewScroll;
+  end;
+
+  FPreview := nil;
+  FPreviewDirty := False;
+  FPreviewTimer.Enabled := False;
+end;
+
+procedure TMarkdownEditor.Notification(AComponent: TComponent; Operation: TOperation);
+begin
+  inherited Notification(AComponent, Operation);
+
+  if (Operation = TOperation.opRemove) and (AComponent = FPreview) then
+  begin
+    FPreview := nil;
+    FPreviewDirty := False;
+    FPreviewTimer.Enabled := False;
+  end;
+end;
+
+procedure TMarkdownEditor.FlushPreview;
+var
+  StartedAt: Integer;
+  PreviousOffset: Single;
+begin
+  FPreviewTimer.Enabled := False;
+  FPreviewDirty := False;
+  if FPreview = nil then
+    Exit;
+
+  StartedAt := GetTickCount64;
+  PreviousOffset := FPreview.ScrollOffset;
+
+  FUpdatingPreview := True;
+  try
+    FPreview.Text := FModel.Text;
+  finally
+    FUpdatingPreview := False;
+  end;
+
+  RestorePreviewScroll(PreviousOffset);
+
+  FLastPreviewUpdateMilliseconds := GetTickCount64 - StartedAt;
+end;
+
+procedure TMarkdownEditor.RestorePreviewScroll(const PreviousOffset: Single);
+begin
+  // Re-rendering the preview parks it back at the top, which would yank the
+  // reader away on every keystroke. Linked panes follow the editor; an unlinked
+  // preview keeps the offset it had.
+  if FSyncScroll then
+  begin
+    SyncPreviewToEditor;
+    KeepCaretLineInPreview;
+    Exit;
+  end;
+
+  FPreview.ScrollOffset := PreviousOffset;
+end;
+
+procedure TMarkdownEditor.HandleInternalPreviewScroll(Sender: TObject);
+var
+  SourceLine: Integer;
+begin
+  if (not FSyncScroll) or FSyncing or (FPreview = nil) then
+    Exit;
+
+  FSyncing := True;
+  try
+    SourceLine := FPreview.ScrollOffsetToSourceLine(FPreview.ScrollOffset);
+    ScrollToSourceLine(SourceLine);
+    DoSyncScroll(SourceLine);
+  finally
+    FSyncing := False;
+  end;
+end;
+
+procedure TMarkdownEditor.SyncPreviewToEditor;
+var
+  SourceLine: Integer;
+begin
+  if (not FSyncScroll) or FSyncing or (FPreview = nil) then
+    Exit;
+
+  FSyncing := True;
+  try
+    SourceLine := FirstVisibleSourceLine;
+    FPreview.ScrollOffset := FPreview.SourceLineToScrollOffset(SourceLine);
+    DoSyncScroll(SourceLine);
+  finally
+    FSyncing := False;
+  end;
+end;
+
+// A caret moved by typing, a key or a click takes the preview along when its
+// line would otherwise leave it: the preview can need more room than the
+// editor for the same lines, as text wraps, images take height or the two zoom
+// apart. Scrolling leaves the caret alone and does not come here, so the
+// preview then follows the editor's top line only.
+procedure TMarkdownEditor.KeepCaretLineInPreview;
+var
+  CaretLine: Integer;
+  Offset: Single;
+  IsMoving: Boolean;
+begin
+  if (not FSyncScroll) or FSyncing or (FPreview = nil) then
+    Exit;
+  if not FPreview.HandleAllocated then
+    Exit;
+
+  if not TryGetVisibleCaretLine(CaretLine) then
+    Exit;
+
+  Offset := PreviewOffsetShowingLine(CaretLine);
+  IsMoving := (not SameValue(Offset, FPreview.ScrollOffset));
+  if not IsMoving then
+    Exit;
+
+  FSyncing := True;
+  try
+    FPreview.ScrollOffset := Offset;
+  finally
+    FSyncing := False;
+  end;
+end;
+
+function TMarkdownEditor.PreviewOffsetShowingLine(const SourceLine: Integer): Single;
+var
+  TopLineOffset: Single;
+  LineTop: Single;
+  LineBottom: Single;
+begin
+  TopLineOffset := FPreview.SourceLineToScrollOffset(FirstVisibleSourceLine);
+  LineTop := FPreview.SourceLineToScrollOffset(SourceLine);
+  LineBottom := FPreview.SourceLineToScrollOffset(SourceLine + 1);
+
+  Result := TMarkdownPreviewScroll.OffsetShowingLine(TopLineOffset, LineTop, LineBottom, FPreview.ClientHeight);
+end;
+
+function TMarkdownEditor.TryGetVisibleCaretLine(out CaretLine: Integer): Boolean;
+var
+  CanLocateCaret: Boolean;
+  CaretRow: Integer;
+  CaretTop: Integer;
+  IsInSight: Boolean;
+begin
+  CaretLine := 0;
+  Result := False;
+
+  CanLocateCaret := (HandleAllocated and (Length(FRows) > 0));
+  if not CanLocateCaret then
+    Exit;
+
+  CaretRow := RowIndexOfOffset(FModel.CaretPosition);
+  CaretTop := CaretRow * LineHeightPx;
+  IsInSight := ((CaretTop >= FScrollOffset) and (CaretTop + LineHeightPx <= FScrollOffset + ClientHeight));
+  if not IsInSight then
+    Exit;
+
+  CaretLine := FRows[CaretRow].LineIndex;
+  Result := True;
+end;
+
+procedure TMarkdownEditor.DoSyncScroll(const SourceLine: Integer);
+begin
+  if Assigned(FOnSyncScroll) then
+    FOnSyncScroll(Self, SourceLine);
+end;
+
+procedure TMarkdownEditor.PaintTo(const Bitmap: TBitmap);
+begin
+  RenderContent(Bitmap.Canvas, Bitmap.Width, Bitmap.Height, ContentPixelsPerInch, 0);
+end;
+
+function TMarkdownEditor.FirstVisibleSourceLine: Integer;
+var
+  RowIndex: Integer;
+begin
+  if Length(FRows) = 0 then
+  begin
+    Result := 0;
+    Exit;
+  end;
+
+  RowIndex := EnsureRange(FScrollOffset div LineHeightPx, 0, High(FRows));
+  Result := FRows[RowIndex].LineIndex;
+end;
+
+function TMarkdownEditor.SourceLineStartOffset(const LineIndex: Integer): Integer;
+begin
+  Result := FModel.OffsetOfLineStart(LineIndex);
+end;
+
+procedure TMarkdownEditor.ScrollToSourceLine(const LineIndex: Integer);
+var
+  Index: Integer;
+  IsTargetLine: Boolean;
+begin
+  for Index := 0 to High(FRows) do
+  begin
+    IsTargetLine := FRows[Index].LineIndex = LineIndex;
+    if IsTargetLine then
+    begin
+      SetScrollOffset(Index * LineHeightPx);
+      Exit;
+    end;
+  end;
+end;
+
+function TMarkdownEditor.SaveEditState: IMarkdownEditorState;
+begin
+  Result := FModel.CaptureState;
+end;
+
+procedure TMarkdownEditor.LoadEditState(const State: IMarkdownEditorState);
+begin
+  FDesignSampleActive := False;
+  FModel.RestoreState(State);
+
+  FScrollOffset := 0;
+  RebuildRows;
+  UpdateScrollBar;
+  ScrollCaretIntoView;
+  UpdateCaret;
+  Invalidate;
+  SchedulePreviewUpdate;
+end;
+
+procedure TMarkdownEditor.HighlightMatches(const Needle: string);
+begin
+  HighlightMatches(Needle, Default(TMarkdownFindOptions));
+end;
+
+procedure TMarkdownEditor.HighlightMatches(const Needle: string; const Options: TMarkdownFindOptions);
+begin
+  FMatches.SetNeedle(FModel, Needle, Options);
+  Invalidate;
+end;
+
+procedure TMarkdownEditor.ClearHighlights;
+begin
+  FMatches.Clear;
+  Invalidate;
+end;
+
+function TMarkdownEditor.HighlightCount: Integer;
+begin
+  Result := FMatches.Count;
+end;
+
+function TMarkdownEditor.FindMatchCount(const Needle: string): Integer;
+begin
+  Result := FModel.FindMatchCount(Needle);
+end;
+
+function TMarkdownEditor.FindMatchCount(const Needle: string; const Options: TMarkdownFindOptions): Integer;
+begin
+  Result := FModel.FindMatchCount(Needle, Options);
+end;
+
+function TMarkdownEditor.FindMatchIndex(const Needle: string; const Options: TMarkdownFindOptions): Integer;
+begin
+  Result := FModel.FindMatchIndex(Needle, Options);
+end;
+
+function TMarkdownEditor.FindNext(const Needle: string): Boolean;
+begin
+  Result := FindNext(Needle, Default(TMarkdownFindOptions));
+end;
+
+function TMarkdownEditor.FindNext(const Needle: string; const Options: TMarkdownFindOptions): Boolean;
+var
+  StartAfter: Integer;
+  Offset: Integer;
+begin
+  if Needle = '' then
+  begin
+    Result := False;
+    Exit;
+  end;
+
+  StartAfter := FModel.SelectionStart + FModel.SelectionLength - 1;
+  Offset := FModel.FindNext(Needle, StartAfter, Options);
+  if Offset < 0 then
+  begin
+    Result := False;
+    Exit;
+  end;
+
+  FModel.SetSelection(Offset, System.Length(Needle));
+  RevealSelection;
+
+  Result := True;
+end;
+
+function TMarkdownEditor.FindPrevious(const Needle: string; const Options: TMarkdownFindOptions): Boolean;
+var
+  Offset: Integer;
+begin
+  if Needle = '' then
+  begin
+    Result := False;
+    Exit;
+  end;
+
+  Offset := FModel.FindPrevious(Needle, FModel.SelectionStart, Options);
+  if Offset < 0 then
+  begin
+    Result := False;
+    Exit;
+  end;
+
+  FModel.SetSelection(Offset, System.Length(Needle));
+  RevealSelection;
+
+  Result := True;
+end;
+
+function TMarkdownEditor.ReplaceCurrent(const Needle, Replacement: string;
+  const Options: TMarkdownFindOptions): Boolean;
+begin
+  if Needle = '' then
+  begin
+    Result := False;
+    Exit;
+  end;
+
+  Result := FModel.ReplaceCurrent(Needle, Replacement, Options);
+  RevealSelection;
+end;
+
+function TMarkdownEditor.ReplaceAll(const Needle, Replacement: string;
+  const Options: TMarkdownFindOptions): Integer;
+begin
+  if Needle = '' then
+  begin
+    Result := 0;
+    Exit;
+  end;
+
+  Result := FModel.ReplaceAll(Needle, Replacement, Options);
+  RevealSelection;
+end;
+
+procedure TMarkdownEditor.RevealSelection;
+begin
+  FModel.ExpandAt(FModel.SelectionStart);
+  RebuildRows;
+  UpdateScrollBar;
+  ScrollCaretIntoView;
+  UpdateCaret;
+  Invalidate;
+end;
+
+procedure TMarkdownEditor.HandleModelChange(const Sender: TObject; const Range: TEditorReplaceRange);
+begin
+  FMatches.Refresh(FModel);
+
+  RebuildRows;
+  UpdateScrollBar;
+  ScrollCaretIntoView;
+  UpdateCaret;
+  Invalidate;
+  SchedulePreviewUpdate;
+
+  if Assigned(FOnChange) then
+    FOnChange(Self);
+end;
+
+procedure TMarkdownEditor.HandlePreviewTimer(Sender: TObject);
+var
+  HasWork: Boolean;
+  IsPreviewHidden: Boolean;
+begin
+  HasWork := (FLifetime.IsAlive and FPreviewDirty);
+  if not HasWork then
+  begin
+    FPreviewTimer.Enabled := False;
+    Exit;
+  end;
+
+  // A hidden preview and keystrokes still on their way both let the update
+  // wait; the timer keeps checking until neither holds.
+  IsPreviewHidden := ((FPreview <> nil) and not FPreview.Showing);
+  if IsPreviewHidden or HasPendingKeystrokes then
+    Exit;
+
+  FlushPreview;
+end;
+
+// LCL has the same queue peek under LCLIntf; the key-message range is spelled
+// with LMessages' own constants, because the Winapi WM_KEYFIRST/WM_KEYLAST pair
+// only exists in the Windows widgetset.
+class function TMarkdownEditor.HasPendingKeystrokes: Boolean;
+var
+  Message: TMsg;
+begin
+  Result := PeekMessage(Message, 0, LM_KEYFIRST, LM_KEYLAST, PM_NOREMOVE);
+end;
+
+procedure TMarkdownEditor.SchedulePreviewUpdate;
+begin
+  if (FPreview = nil) or FUpdatingPreview then
+    Exit;
+
+  FPreviewDirty := True;
+  FPreviewTimer.Enabled := False;
+  FPreviewTimer.Interval := TMarkdownPreviewPacer.DelayAfter(FLastPreviewUpdateMilliseconds);
+  FPreviewTimer.Enabled := True;
+end;
+
+procedure TMarkdownEditor.Paint;
+begin
+  EnsureDesignSample;
+  EnsureBufferSize;
+  RenderContent(FBuffer.Canvas, Max(1, ClientWidth), Max(1, ClientHeight), ContentPixelsPerInch, FScrollOffset);
+  PaintAutoScrollOrigin;
+  // GTK3's scrolling window moves the GtkLayout bin window, so the canvas origin
+  // is the top of the visible slice rather than the top of the widget: the
+  // buffer, which holds that slice, lands at the scroll offset.  Drawing it at 0
+  // would push it one screen further up and out of the clip.
+  Canvas.Draw(0, FScrollOffset, FBuffer);
+end;
+
+procedure TMarkdownEditor.PaintAutoScrollOrigin;
+var
+  Painter: IPainter;
+begin
+  if not FAutoScroller.IsActive then
+    Exit;
+
+  Painter := TMarkdownLclPainter.Create(FBuffer.Canvas, ContentPixelsPerInch);
+  FAutoScroller.PaintOrigin(Painter, FTheme.BackgroundColor, FTheme.TextColor);
+end;
+
+procedure TMarkdownEditor.EnsureDesignSample;
+begin
+  if not (csDesigning in ComponentState) then
+    Exit;
+
+  if FDesignSampleActive then
+    Exit;
+
+  if FModel.Text <> '' then
+    Exit;
+
+  FDesignSampleActive := True;
+  FModel.LoadText(TMarkdownDesignSample.Markdown);
+  RebuildRows;
+  UpdateScrollBar;
+end;
+
+procedure TMarkdownEditor.RenderContent(const TargetCanvas: TCanvas; const TargetWidth, TargetHeight, PixelsPerInch,
+  ScrollY: Integer);
+var
+  Painter: TMarkdownLclPainter;
+  PainterLifetime: IPainter;
+  LineHeight: Int64;
+  GutterWidth: Integer;
+  TextLeft: Integer;
+  CaretRow: Integer;
+  ActiveTop: Integer;
+  State: Integer;
+  RowIndex: Integer;
+  LineCount: Integer;
+  LineIndex: Integer;
+  LineText: string;
+  Tokenized: TMarkdownSourceLine;
+  Row: TVisualRow;
+  Top: Integer;
+  IsVisible: Boolean;
+begin
+  Painter := TMarkdownLclPainter.Create(TargetCanvas, PixelsPerInch);
+  PainterLifetime := Painter;
+
+  Painter.FillRect(TLayoutRectF.Create(0, 0, TargetWidth, TargetHeight), FTheme.BackgroundColor);
+
+  LineHeight := Round(Painter.LineHeight(CodeFont));
+  if LineHeight < 1 then
+    LineHeight := 1;
+
+  GutterWidth := GutterWidthPx(PainterLifetime, PixelsPerInch);
+  TextLeft := GutterWidth + MulDiv(TextLeftPaddingDips, PixelsPerInch, ReferencePixelsPerInch);
+
+  CaretRow := RowIndexOfOffset(FModel.CaretPosition);
+  ActiveTop := CaretRow * LineHeight - ScrollY;
+  Painter.FillRect(TLayoutRectF.Create(0, ActiveTop, TargetWidth, ActiveTop + LineHeight),
+    FTheme.CodeBackgroundColor);
+
+  State := FHighlighter.InitialState;
+  RowIndex := 0;
+  LineCount := FModel.LineCount;
+  for LineIndex := 0 to LineCount - 1 do
+  begin
+    LineText := LineTextAt(LineIndex);
+    Tokenized := FHighlighter.TokenizeLine(LineText, State);
+
+    while (RowIndex <= High(FRows)) and (FRows[RowIndex].LineIndex = LineIndex) do
+    begin
+      Row := FRows[RowIndex];
+      Top := RowIndex * LineHeight - ScrollY;
+      if Top > TargetHeight then
+        Exit;
+
+      IsVisible := (Top + LineHeight) > 0;
+      if IsVisible then
+      begin
+        DrawRowMatches(PainterLifetime, Row, TextLeft, Top);
+        DrawRowSelection(PainterLifetime, Row, TextLeft, Top, TargetWidth);
+        if FShowLineNumbers and Row.IsFirst then
+          DrawGutterNumber(PainterLifetime, LineIndex, GutterWidth, Top);
+        if Row.IsFirst and FModel.IsFoldHeader(LineIndex) then
+          DrawFoldMarker(PainterLifetime, GutterWidth, Top, FModel.IsRegionCollapsed(LineIndex));
+        DrawRowTokens(PainterLifetime, Row, LineText, Tokenized.Tokens, TextLeft, Top);
+      end;
+
+      Inc(RowIndex);
+    end;
+
+    State := Tokenized.NextState;
+  end;
+end;
+
+procedure TMarkdownEditor.DrawRowSelection(const Painter: IPainter; const Row: TVisualRow;
+  const TextLeft, Top, TargetWidth: Integer);
+var
+  SelStart: Integer;
+  SelEnd: Integer;
+  OutsideSelection: Boolean;
+  RowStr: string;
+  SegStart: Integer;
+  SegEnd: Integer;
+  LeftX: Int64;
+  SelectionSpansLineBreak: Boolean;
+  RightX: Integer;
+begin
+  if not FModel.HasSelection then
+    Exit;
+
+  SelStart := FModel.SelectionStart;
+  SelEnd := SelStart + FModel.SelectionLength;
+
+  OutsideSelection := (SelEnd <= Row.StartOffset) or (SelStart > Row.EndOffset);
+  if OutsideSelection then
+    Exit;
+
+  RowStr := RowText(Row);
+  SegStart := Max(SelStart, Row.StartOffset) - Row.StartOffset;
+  SegEnd := Min(SelEnd, Row.EndOffset) - Row.StartOffset;
+
+  LeftX := TextLeft + Round(FMeasurePainter.MeasureText(Copy(RowStr, 1, SegStart), CodeFont).Width);
+
+  SelectionSpansLineBreak := SelEnd > Row.EndOffset;
+  if SelectionSpansLineBreak then
+    RightX := TargetWidth
+  else
+    RightX := TextLeft + Round(FMeasurePainter.MeasureText(Copy(RowStr, 1, SegEnd), CodeFont).Width);
+
+  Painter.FillRect(TLayoutRectF.Create(LeftX, Top, Max(LeftX, RightX), Top + LineHeightPx), SelectionFillColor);
+end;
+
+procedure TMarkdownEditor.DrawRowMatches(const Painter: IPainter; const Row: TVisualRow;
+  const TextLeft, Top: Integer);
+var
+  RowStr: string;
+  Span: TEditorHighlightSpan;
+  LeftX: Int64;
+  RightX: Int64;
+begin
+  if not FMatches.IsActive then
+    Exit;
+
+  RowStr := RowText(Row);
+
+  for Span in FMatches.SpansWithin(Row.StartOffset, Row.EndOffset) do
+  begin
+    LeftX := TextLeft + Round(FMeasurePainter.MeasureText( Copy(RowStr, 1, Span.StartOffset - Row.StartOffset), CodeFont).Width);
+    RightX := TextLeft + Round(FMeasurePainter.MeasureText( Copy(RowStr, 1, Span.EndOffset - Row.StartOffset), CodeFont).Width);
+
+    Painter.FillRect(TLayoutRectF.Create(LeftX, Top, Max(LeftX, RightX), Top + LineHeightPx), MatchFillColor);
+  end;
+end;
+
+procedure TMarkdownEditor.DrawRowTokens(const Painter: IPainter; const Row: TVisualRow; const LineText: string;
+  const Tokens: TArray<TMarkdownSourceToken>; const TextLeft, Top: Integer);
+var
+  LineStart: Integer;
+  RowStartCol: Integer;
+  RowEndCol: Integer;
+  Token: TMarkdownSourceToken;
+  TokenStartCol: Integer;
+  TokenEndCol: Integer;
+  SegStartCol: Integer;
+  SegEndCol: Integer;
+  HasVisibleSegment: Boolean;
+  Segment: string;
+  PrefixWithinRow: string;
+  OffsetX: Int64;
+begin
+  LineStart := LineStartOffset(Row.LineIndex);
+  RowStartCol := Row.StartOffset - LineStart;
+  RowEndCol := Row.EndOffset - LineStart;
+
+  for Token in Tokens do
+  begin
+    TokenStartCol := Token.Start - 1;
+    TokenEndCol := TokenStartCol + Token.Length;
+    SegStartCol := Max(TokenStartCol, RowStartCol);
+    SegEndCol := Min(TokenEndCol, RowEndCol);
+
+    HasVisibleSegment := SegEndCol > SegStartCol;
+    if not HasVisibleSegment then
+      Continue;
+
+    Segment := Copy(LineText, SegStartCol + 1, SegEndCol - SegStartCol);
+    PrefixWithinRow := Copy(LineText, RowStartCol + 1, SegStartCol - RowStartCol);
+    OffsetX := Round(Painter.MeasureText(PrefixWithinRow, CodeFont).Width);
+    Painter.DrawTextRun(TLayoutPointF.Create(TextLeft + OffsetX, Top), Segment, CodeFont, TokenColor(Token.Kind));
+  end;
+end;
+
+procedure TMarkdownEditor.RebuildRows;
+var
+  NotReady: Boolean;
+begin
+  NotReady := (FRowModel = nil) or (FMeasurePainter = nil);
+  if NotReady then
+    Exit;
+
+  FRowModel.Rebuild(WrapWidthPx);
+  FRows := FRowModel.Items;
+end;
+
+function TMarkdownEditor.WrapWidthPx: Integer;
+var
+  ControlWidth: Single;
+  Available: Single;
+  MinimumWidth: Integer;
+begin
+  ControlWidth := Width;
+  if HandleAllocated then
+    ControlWidth := ClientWidth;
+
+  Available := ControlWidth - TextLeftPx - CaretWidthPx;
+  MinimumWidth := MulDiv(MinimumWrapWidthDips, ContentPixelsPerInch, ReferencePixelsPerInch);
+  // `Max` of a Single and an Integer is a Single; the width it returns is in
+  // whole pixels.
+  Result := Round(Max(Available, MinimumWidth));
+end;
+
+function TMarkdownEditor.RowCount: Integer;
+begin
+  Result := Length(FRows);
+end;
+
+function TMarkdownEditor.RowText(const Row: TVisualRow): string;
+begin
+  Result := FRowModel.TextOf(Row);
+end;
+
+function TMarkdownEditor.RowIndexOfOffset(const Offset: Integer): Integer;
+begin
+  Result := FRowModel.IndexOfOffset(Offset);
+end;
+
+function TMarkdownEditor.OffsetAtRowX(const RowIndex: Integer; const TargetX: Integer): Integer;
+begin
+  Result := FRowModel.OffsetAtX(RowIndex, TargetX);
+end;
+
+procedure TMarkdownEditor.DrawGutterNumber(const Painter: IPainter; const LineIndex, GutterWidth, Top: Integer);
+var
+  Number: string;
+  Padding: Integer;
+  NumberWidth: Int64;
+  NumberLeft: Integer;
+begin
+  Number := IntToStr(LineIndex + 1);
+  Padding := MulDiv(GutterPaddingDips, ContentPixelsPerInch, ReferencePixelsPerInch);
+  NumberWidth := Round(Painter.MeasureText(Number, CodeFont).Width);
+  NumberLeft := GutterWidth - FoldGutterWidthPx(ContentPixelsPerInch) - Padding - NumberWidth;
+  Painter.DrawTextRun(TLayoutPointF.Create(NumberLeft, Top), Number, CodeFont, FTheme.BlockQuoteTextColor);
+end;
+
+procedure TMarkdownEditor.DrawFoldMarker(const Painter: IPainter; const GutterWidth, Top: Integer;
+  const Collapsed: Boolean);
+var
+  FoldWidth: Integer;
+  ColumnLeft: Integer;
+  CenterX: Double;
+  CenterY: Double;
+  Half: Double;
+  Color: TLayoutColor;
+begin
+  FoldWidth := FoldGutterWidthPx(ContentPixelsPerInch);
+  if FoldWidth <= 0 then
+    Exit;
+
+  ColumnLeft := GutterWidth - FoldWidth;
+  CenterX := ColumnLeft + FoldWidth / 2;
+  CenterY := Top + LineHeightPx / 2;
+  Half := Min(FoldWidth, LineHeightPx) * 0.3;
+  Color := FTheme.BlockQuoteTextColor;
+
+  if Half <= 0 then
+    Exit;
+
+  if Collapsed then
+    Painter.FillPolygon([TLayoutPointF.Create(CenterX - Half * 0.7, CenterY - Half),
+      TLayoutPointF.Create(CenterX + Half * 0.9, CenterY),
+      TLayoutPointF.Create(CenterX - Half * 0.7, CenterY + Half)], Color)
+  else
+    Painter.FillPolygon([TLayoutPointF.Create(CenterX - Half, CenterY - Half * 0.7),
+      TLayoutPointF.Create(CenterX + Half, CenterY - Half * 0.7),
+      TLayoutPointF.Create(CenterX, CenterY + Half * 0.9)], Color);
+end;
+
+function TMarkdownEditor.BeginSelectionDrag(const X, Y, Offset: Integer): Boolean;
+begin
+  // A press inside the selection may become a drag, so the selection is left
+  // untouched until the mouse either moves far enough or is released in place.
+  Result := FModel.OffsetInSelection(Offset);
+  if not Result then
+    Exit;
+
+  FDragPending := True;
+  FDraggingSelection := False;
+  FDragOrigin := Point(X, Y);
+  FDragOffset := Offset;
+end;
+
+procedure TMarkdownEditor.UpdateSelectionDrag(const X, Y: Integer);
+var
+  MovedFar: Boolean;
+begin
+  if FDragPending then
+  begin
+    MovedFar := (Abs(X - FDragOrigin.X) > DragThresholdPx) or (Abs(Y - FDragOrigin.Y) > DragThresholdPx);
+    if not MovedFar then
+      Exit;
+
+    FDragPending := False;
+    FDraggingSelection := True;
+    Cursor := crDrag;
+  end;
+
+  UpdateAutoScroll(X, Y);
+end;
+
+function TMarkdownEditor.FinishSelectionDrag(const X, Y: Integer): Boolean;
+var
+  WasDragging: Boolean;
+begin
+  Result := FDragPending or FDraggingSelection;
+  if not Result then
+    Exit;
+
+  WasDragging := FDraggingSelection;
+
+  FDragPending := False;
+  FDraggingSelection := False;
+  Cursor := crIBeam;
+
+  if WasDragging then
+    FModel.MoveSelectionTo(OffsetFromPoint(X, Y))
+  else
+    FModel.CaretPosition := FDragOffset;
+
+  RefreshAfterEdit;
+  Invalidate;
+end;
+
+procedure TMarkdownEditor.ShowContextMenu(const X, Y: Integer);
+var
+  Item: TEditorContextItem;
+  Separator: TMenuItem;
+  Entry: TMenuItem;
+  Origin: TPoint;
+begin
+  // A menu assigned by the host wins; the built-in one is the fallback.
+  if PopupMenu <> nil then
+    Exit;
+
+  if FContextMenu = nil then
+    FContextMenu := TPopupMenu.Create(Self);
+
+  FContextMenu.Items.Clear;
+
+  for Item in TMarkdownEditorContextMenu.Build(FModel, ClipboardHasText) do
+  begin
+    if Item.StartsGroup and (FContextMenu.Items.Count > 0) then
+    begin
+      Separator := TMenuItem.Create(FContextMenu);
+      Separator.Caption := MenuSeparatorCaption;
+      FContextMenu.Items.Add(Separator);
+    end;
+
+    Entry := TMenuItem.Create(FContextMenu);
+    Entry.Caption := Item.Caption;
+    Entry.Enabled := Item.Enabled;
+    Entry.ShortCut := Item.ShortCut;
+    Entry.Tag := Ord(Item.Command);
+    Entry.OnClick := HandleContextItemClick;
+    FContextMenu.Items.Add(Entry);
+  end;
+
+  Origin := ClientToScreen(Point(X, Y));
+  FContextMenu.Popup(Origin.X, Origin.Y);
+end;
+
+procedure TMarkdownEditor.HandleContextItemClick(Sender: TObject);
+var
+  Command: TEditorContextCommand;
+begin
+  Command := TEditorContextCommand((Sender as TMenuItem).Tag);
+
+  if TMarkdownEditorContextMenu.Execute(FModel, Command) then
+  begin
+    RefreshAfterEdit;
+    Exit;
+  end;
+
+  case Command of
+    TEditorContextCommand.Cut:
+      CutToClipboard;
+    TEditorContextCommand.Copy:
+      CopyToClipboard;
+    TEditorContextCommand.Paste:
+      PasteFromClipboard;
+  end;
+
+  RefreshAfterEdit;
+end;
+
+// The clipboard belongs to the whole machine and any process may hold it for a
+// moment. An editor that raised over that would put a dialog in front of a
+// reader who only pressed a key, so a busy clipboard is a copy that did not
+// happen and nothing more.  LCL has no CF_UNICODETEXT/EClipboardException pair,
+// so the text crosses as UTF-8 and any failure is the same "not now".
+function TMarkdownEditor.ClipboardHasText: Boolean;
+var
+  Held: string;
+begin
+  Result := TryReadClipboard(Held) and (Held <> '');
+end;
+
+class function TMarkdownEditor.TryReadClipboard(out Value: string): Boolean;
+var
+  Attempt: Integer;
+begin
+  Value := '';
+
+  for Attempt := 1 to ClipboardAttempts do
+  begin
+    try
+      Value := UTF8Decode(Clipboard.AsText);
+      Result := True;
+      Exit;
+    except
+      Sleep(ClipboardPauseMilliseconds);
+    end;
+  end;
+
+  Result := False;
+end;
+
+class function TMarkdownEditor.TryWriteClipboard(const Value: string): Boolean;
+var
+  Attempt: Integer;
+begin
+  for Attempt := 1 to ClipboardAttempts do
+  begin
+    try
+      Clipboard.AsText := UTF8Encode(Value);
+      Result := True;
+      Exit;
+    except
+      Sleep(ClipboardPauseMilliseconds);
+    end;
+  end;
+
+  Result := False;
+end;
+
+function TMarkdownEditor.HandleFoldClick(const X, Y: Integer): Boolean;
+var
+  FoldWidth: Integer;
+  GutterWidth: Integer;
+  InFoldColumn: Boolean;
+  RowIndex: Integer;
+  Row: TVisualRow;
+begin
+  Result := False;
+
+  FoldWidth := FoldGutterWidthPx(ContentPixelsPerInch);
+  if FoldWidth <= 0 then
+    Exit;
+
+  GutterWidth := GutterWidthPx(FMeasurePainterLifetime, ContentPixelsPerInch);
+  InFoldColumn := (X >= GutterWidth - FoldWidth) and (X < GutterWidth);
+  if not InFoldColumn then
+    Exit;
+
+  RowIndex := (Y + FScrollOffset) div LineHeightPx;
+  if (RowIndex < 0) or (RowIndex > High(FRows)) then
+    Exit;
+
+  Row := FRows[RowIndex];
+  if not (Row.IsFirst and FModel.IsFoldHeader(Row.LineIndex)) then
+    Exit;
+
+  FModel.ToggleFold(Row.LineIndex);
+  RebuildRows;
+  UpdateScrollBar;
+  ScrollCaretIntoView;
+  UpdateCaret;
+  Invalidate;
+  Result := True;
+end;
+
+function TMarkdownEditor.TokenColor(const Kind: TMarkdownSourceTokenKind): TLayoutColor;
+begin
+  case Kind of
+    TMarkdownSourceTokenKind.HeadingMarker,
+    TMarkdownSourceTokenKind.EmphasisDelimiter,
+    TMarkdownSourceTokenKind.CodeSpanDelimiter,
+    TMarkdownSourceTokenKind.BlockQuoteMarker,
+    TMarkdownSourceTokenKind.ListMarker,
+    TMarkdownSourceTokenKind.LinkBracket,
+    TMarkdownSourceTokenKind.MathDelimiter:
+      Result := FTheme.BlockQuoteTextColor;
+    TMarkdownSourceTokenKind.CodeSpanText,
+    TMarkdownSourceTokenKind.FenceLine,
+    TMarkdownSourceTokenKind.FenceContent,
+    TMarkdownSourceTokenKind.MathText:
+      Result := FTheme.CodeTextColor;
+    TMarkdownSourceTokenKind.LinkText,
+    TMarkdownSourceTokenKind.LinkUrl:
+      Result := FTheme.LinkColor;
+  else
+    Result := FTheme.TextColor;
+  end;
+end;
+
+function TMarkdownEditor.GutterWidthPx(const Painter: IPainter; const PixelsPerInch: Integer): Integer;
+var
+  LineCount: Integer;
+  Digits: Integer;
+  Sample: string;
+  Padding: Integer;
+begin
+  Result := FoldGutterWidthPx(PixelsPerInch);
+
+  if not FShowLineNumbers then
+    Exit;
+
+  LineCount := Max(1, FModel.LineCount);
+  Digits := Length(IntToStr(LineCount));
+  Sample := StringOfChar('0', Digits);
+  Padding := MulDiv(GutterPaddingDips, PixelsPerInch, ReferencePixelsPerInch);
+  Result := Result + Round(Painter.MeasureText(Sample, CodeFont).Width) + 2 * Padding;
+end;
+
+function TMarkdownEditor.FoldGutterWidthPx(const PixelsPerInch: Integer): Integer;
+begin
+  if FModel.HasFoldRegions then
+    Result := MulDiv(FoldMarkerWidthDips, PixelsPerInch, ReferencePixelsPerInch)
+  else
+    Result := 0;
+end;
+
+procedure TMarkdownEditor.SetZoom(const Value: Integer);
+begin
+  FPendingZoom := TMarkdownZoom.Clamp(Value);
+  ApplyZoomNow;
+end;
+
+procedure TMarkdownEditor.ZoomIn;
+begin
+  StepZoom(TMarkdownZoom.StepIn(FPendingZoom));
+end;
+
+procedure TMarkdownEditor.ZoomOut;
+begin
+  StepZoom(TMarkdownZoom.StepOut(FPendingZoom));
+end;
+
+procedure TMarkdownEditor.ResetZoom;
+begin
+  StepZoom(TMarkdownZoom.DefaultPercent);
+end;
+
+// A long text waits until the wheel rests, so turning it several notches
+// wraps the text once.
+procedure TMarkdownEditor.StepZoom(const Percent: Integer);
+begin
+  FPendingZoom := TMarkdownZoom.Clamp(Percent);
+
+  if FZoomPacer.TryReflowNow(GetTickCount64, FLastWrapMilliseconds) then
+  begin
+    ApplyZoomNow;
+    Exit;
+  end;
+
+  FZoomTimer.Enabled := False;
+  FZoomTimer.Enabled := True;
+end;
+
+procedure TMarkdownEditor.ApplyZoomNow;
+var
+  IsChange: Boolean;
+  TopLine: Integer;
+begin
+  FZoomTimer.Enabled := False;
+
+  IsChange := (FZoom <> FPendingZoom);
+  if not IsChange then
+    Exit;
+
+  TopLine := FirstVisibleSourceLine;
+  FZoom := FPendingZoom;
+  RecomputeMetrics;
+  ScrollToSourceLine(TopLine);
+
+  if Assigned(FOnZoomChange) then
+    FOnZoomChange(Self);
+end;
+
+procedure TMarkdownEditor.HandleZoomTimer(Sender: TObject);
+begin
+  if FZoomPacer.TryFlush(GetTickCount64, False) then
+    ApplyZoomNow;
+end;
+
+function TMarkdownEditor.CodeFont: TMarkdownFontStyle;
+begin
+  Result := FTheme.CodeFont;
+  Result.Size := Result.Size * FZoom / TMarkdownZoom.DefaultPercent;
+end;
+
+function TMarkdownEditor.LineHeightPx: Integer;
+begin
+  Result := Round(FMeasurePainter.LineHeight(CodeFont));
+  if Result < 1 then
+    Result := 1;
+end;
+
+function TMarkdownEditor.VisibleLineCount: Integer;
+begin
+  Result := Max(1, ClientHeight div LineHeightPx);
+end;
+
+function TMarkdownEditor.TextLeftPx: Integer;
+begin
+  Result := GutterWidthPx(FMeasurePainterLifetime, ContentPixelsPerInch) +
+    MulDiv(TextLeftPaddingDips, ContentPixelsPerInch, ReferencePixelsPerInch);
+end;
+
+function TMarkdownEditor.CaretWidthPx: Integer;
+begin
+  Result := Max(1, MulDiv(CaretWidthDips, ContentPixelsPerInch, ReferencePixelsPerInch));
+end;
+
+// The content follows the scale the desktop reports, as its size does.  LCL
+// folds the monitor scale into Screen.PixelsPerInch, so this is the DPI the
+// layout engine must convert its device-independent lengths against.
+function TMarkdownEditor.ContentPixelsPerInch: Integer;
+begin
+  Result := Screen.PixelsPerInch;
+  if Result <= 0 then
+    Result := ReferencePixelsPerInch;
+end;
+
+function TMarkdownEditor.LineTextAt(const LineIndex: Integer): string;
+begin
+  Result := FRowModel.LineTextAt(LineIndex);
+end;
+
+function TMarkdownEditor.LineStartOffset(const LineIndex: Integer): Integer;
+begin
+  Result := FRowModel.LineStartOffset(LineIndex);
+end;
+
+function TMarkdownEditor.OffsetFromPoint(const X, Y: Integer): Integer;
+var
+  RowIndex: Integer;
+  LocalX: Integer;
+begin
+  if Length(FRows) = 0 then
+  begin
+    Result := 0;
+    Exit;
+  end;
+
+  RowIndex := EnsureRange((Y + FScrollOffset) div LineHeightPx, 0, High(FRows));
+  LocalX := X - TextLeftPx;
+  Result := OffsetAtRowX(RowIndex, Max(0, LocalX));
+end;
+
+function TMarkdownEditor.CurrentAnchor: Integer;
+begin
+  if FModel.CaretPosition = FModel.SelectionStart then
+    Result := FModel.SelectionStart + FModel.SelectionLength
+  else
+    Result := FModel.SelectionStart;
+end;
+
+function TMarkdownEditor.ContentHeightPx: Integer;
+begin
+  Result := RowCount * LineHeightPx;
+end;
+
+function TMarkdownEditor.MaxScrollOffset: Integer;
+begin
+  Result := Max(0, ContentHeightPx - ClientHeight);
+end;
+
+procedure TMarkdownEditor.SetScrollOffset(const Value: Integer);
+var
+  Clamped: Integer;
+begin
+  if not HandleAllocated then
+    Exit;
+
+  Clamped := EnsureRange(Value, 0, MaxScrollOffset);
+  if Clamped = FScrollOffset then
+    Exit;
+
+  FScrollOffset := Clamped;
+  UpdateScrollBar;
+  UpdateCaret;
+  Invalidate;
+
+  if Assigned(FOnScroll) then
+    FOnScroll(Self);
+
+  SyncPreviewToEditor;
+end;
+
+procedure TMarkdownEditor.ScrollCaretIntoView;
+var
+  RowIndex: Integer;
+  Top: Integer;
+  Bottom: Integer;
+  NewOffset: Integer;
+begin
+  if not HandleAllocated then
+    Exit;
+
+  RowIndex := RowIndexOfOffset(FModel.CaretPosition);
+  Top := RowIndex * LineHeightPx;
+  Bottom := Top + LineHeightPx;
+
+  NewOffset := FScrollOffset;
+  if Top < NewOffset then
+    NewOffset := Top
+  else if Bottom > NewOffset + ClientHeight then
+    NewOffset := Bottom - ClientHeight;
+
+  SetScrollOffset(NewOffset);
+  KeepCaretLineInPreview;
+end;
+
+// Pushes the content size and the offset out to the native bar.  Visible is set
+// on the bar itself exactly when the content is taller than the view, which is
+// what makes GTK3 grow (and shrink) the scrollbar; LCL then takes the bar out of
+// ClientWidth, as Windows did.
+procedure TMarkdownEditor.UpdateScrollBar;
+var
+  Bar: TControlScrollBar;
+begin
+  if (FModel = nil) or not HandleAllocated then
+    Exit;
+
+  if FUpdatingScrollBar then
+    Exit;
+
+  FUpdatingScrollBar := True;
+  try
+    Bar := VertScrollBar;
+    Bar.Range := Max(0, ContentHeightPx);
+    Bar.Page := Min(Max(1, ClientHeight), High(Bar.Page));
+    Bar.Increment := Min(Max(1, LineHeightPx), High(Bar.Increment));
+    Bar.Position := FScrollOffset;
+    UpdateScrollbars;
+  finally
+    FUpdatingScrollBar := False;
+  end;
+end;
+
+// LCLIntf's caret calls land on the GTK3 widgetset's own TGtk3Caret, which the
+// widget blinks and draws over the paint; SetCaretPos applies to the focused
+// widget, which is this control whenever the caret is being placed.
+procedure TMarkdownEditor.UpdateCaret;
+var
+  Position: TPoint;
+begin
+  if not (Focused and HandleAllocated) then
+    Exit;
+
+  Position := CaretPixelPos;
+  SetCaretPos(Position.X, Position.Y);
+end;
+
+function TMarkdownEditor.CaretPixelPos: TPoint;
+var
+  Caret: Integer;
+  RowIndex: Integer;
+  Row: TVisualRow;
+  Prefix: string;
+  OffsetX: Int64;
+begin
+  Caret := FModel.CaretPosition;
+  if Length(FRows) = 0 then
+  begin
+    Result := Point(TextLeftPx, -FScrollOffset);
+    Exit;
+  end;
+
+  RowIndex := RowIndexOfOffset(Caret);
+  Row := FRows[RowIndex];
+  Prefix := Copy(FModel.Text, Row.StartOffset + 1, Caret - Row.StartOffset);
+  OffsetX := Round(FMeasurePainter.MeasureText(Prefix, CodeFont).Width);
+  Result := Point(TextLeftPx + OffsetX, RowIndex * LineHeightPx - FScrollOffset);
+end;
+
+procedure TMarkdownEditor.RecreateCaret;
+begin
+  if not (Focused and HandleAllocated) then
+    Exit;
+
+  CreateCaret(Handle, 0, CaretWidthPx, LineHeightPx);
+  UpdateCaret;
+  ShowCaret(Handle);
+end;
+
+procedure TMarkdownEditor.RefreshAfterEdit;
+begin
+  UpdateScrollBar;
+  ScrollCaretIntoView;
+  UpdateCaret;
+  Invalidate;
+end;
+
+procedure TMarkdownEditor.MoveVertical(const RowDelta: Integer; const Extend: Boolean);
+var
+  Caret: Integer;
+  RowIndex: Integer;
+  Row: TVisualRow;
+  Prefix: string;
+  TargetX: Int64;
+  TargetRow: Integer;
+begin
+  if Length(FRows) = 0 then
+    Exit;
+
+  Caret := FModel.CaretPosition;
+  RowIndex := RowIndexOfOffset(Caret);
+  Row := FRows[RowIndex];
+  Prefix := Copy(FModel.Text, Row.StartOffset + 1, Caret - Row.StartOffset);
+  TargetX := Round(FMeasurePainter.MeasureText(Prefix, CodeFont).Width);
+  TargetRow := EnsureRange(RowIndex + RowDelta, 0, High(FRows));
+  SetCaretTo(OffsetAtRowX(TargetRow, TargetX), Extend);
+end;
+
+procedure TMarkdownEditor.SetCaretTo(const Offset: Integer; const Extend: Boolean);
+var
+  Anchor: Integer;
+begin
+  if Extend then
+  begin
+    Anchor := CurrentAnchor;
+    FModel.SetSelection(Anchor, Offset - Anchor);
+  end
+  else
+    FModel.CaretPosition := Offset;
+end;
+
+procedure TMarkdownEditor.CopyToClipboard;
+var
+  Selected: string;
+begin
+  Selected := FModel.SelectedText;
+  if Selected = '' then
+    Exit;
+
+  TryWriteClipboard(Selected);
+end;
+
+procedure TMarkdownEditor.CutToClipboard;
+begin
+  if not FModel.HasSelection then
+    Exit;
+
+  // Only cut what was safely copied, so a busy clipboard cannot swallow text.
+  if not TryWriteClipboard(FModel.SelectedText) then
+    Exit;
+
+  FModel.DeleteBackward;
+end;
+
+procedure TMarkdownEditor.PasteFromClipboard;
+var
+  Pasted: string;
+  Normalized: string;
+begin
+  if not TryReadClipboard(Pasted) then
+    Exit;
+
+  if Pasted = '' then
+    Exit;
+
+  // Whichever line endings the clipboard carries, the model holds LF.  FPC's
+  // SysUtils has no CarriageReturn/LineFeed constants, so the characters are
+  // spelled out.
+  Normalized := StringReplace(Pasted, #13#10, #10, [rfReplaceAll]);
+  Normalized := StringReplace(Normalized, #13, #10, [rfReplaceAll]);
+  FModel.BreakUndoCoalescing;
+  FModel.Insert(Normalized);
+end;
+
+procedure TMarkdownEditor.EnsureBufferSize;
+var
+  BufferWidth: Integer;
+  BufferHeight: Integer;
+  SizeChanged: Boolean;
+begin
+  BufferWidth := Max(1, ClientWidth);
+  BufferHeight := Max(1, ClientHeight);
+  SizeChanged := (FBuffer.Width <> BufferWidth) or (FBuffer.Height <> BufferHeight);
+  if SizeChanged then
+    FBuffer.SetSize(BufferWidth, BufferHeight);
+end;
+
+procedure TMarkdownEditor.RecomputeMetrics;
+begin
+  FMeasurePainter.PixelsPerInch := ContentPixelsPerInch;
+  RebuildRows;
+  UpdateScrollBar;
+  RecreateCaret;
+  Invalidate;
+end;
+
+procedure TMarkdownEditor.Resize;
+begin
+  inherited Resize;
+
+  // TScrollingWinControl sizes itself from its constructor, which runs this
+  // before the editor's own fields exist; there is nothing to lay out yet.
+  if FModel = nil then
+    Exit;
+
+  EnsureDesignSample;
+  ApplyWrapWidth;
+  UpdateScrollBar;
+  Invalidate;
+end;
+
+// Wrapping a long document again at every pixel of a splitter drag lags
+// behind the mouse, so a slow rewrap waits until the width settles.
+procedure TMarkdownEditor.ApplyWrapWidth;
+var
+  IsNewWidth: Boolean;
+  RewrapsNow: Boolean;
+begin
+  IsNewWidth := (WrapWidthPx <> FAppliedWrapWidth);
+  RewrapsNow := ((not IsNewWidth) or FWrapPacer.TryReflowNow(GetTickCount64, FLastWrapMilliseconds));
+  if RewrapsNow then
+  begin
+    ApplyWrapWidthNow;
+    Exit;
+  end;
+
+  FWrapTimer.Enabled := False;
+  FWrapTimer.Enabled := True;
+end;
+
+procedure TMarkdownEditor.ApplyWrapWidthNow;
+var
+  StartedAt: Integer;
+begin
+  FWrapTimer.Enabled := False;
+
+  StartedAt := GetTickCount64;
+  FAppliedWrapWidth := WrapWidthPx;
+  RebuildRows;
+  FLastWrapMilliseconds := GetTickCount64 - StartedAt;
+end;
+
+procedure TMarkdownEditor.HandleWrapTimer(Sender: TObject);
+begin
+  if not FWrapPacer.TryFlush(GetTickCount64, TMarkdownPointer.IsPrimaryButtonDown) then
+    Exit;
+
+  ApplyWrapWidthNow;
+  UpdateScrollBar;
+  Invalidate;
+end;
+
+procedure TMarkdownEditor.ChangeScale(Multiplier, Divider: Integer);
+begin
+  inherited ChangeScale(Multiplier, Divider);
+
+  if FMeasurePainter = nil then
+    Exit;
+
+  FScrollOffset := MulDiv(FScrollOffset, Multiplier, Divider);
+  RecomputeMetrics;
+end;
+
+procedure TMarkdownEditor.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+var
+  RightOffset: Integer;
+  Offset: Integer;
+  Anchor: Integer;
+begin
+  inherited MouseDown(Button, Shift, X, Y);
+
+  FClickGesture.PressElsewhere;
+  if FAutoScroller.TryHandlePress(Button, X, Y) then
+    Exit;
+
+  if Button = TMouseButton.mbRight then
+  begin
+    if CanFocus then
+      SetFocus;
+
+    RightOffset := OffsetFromPoint(X, Y);
+    if not FModel.OffsetInSelection(RightOffset) then
+    begin
+      FModel.CaretPosition := RightOffset;
+      UpdateCaret;
+      Invalidate;
+    end;
+
+    ShowContextMenu(X, Y);
+    Exit;
+  end;
+
+  if Button <> TMouseButton.mbLeft then
+    Exit;
+
+  if CanFocus then
+    SetFocus;
+  FModel.BreakUndoCoalescing;
+
+  if HandleFoldClick(X, Y) then
+    Exit;
+
+  Offset := OffsetFromPoint(X, Y);
+
+  if BeginSelectionDrag(X, Y, Offset) then
+  begin
+    FClickGesture.PressInText(X, Y, TMarkdownClickCounter.SingleClick);
+    Exit;
+  end;
+
+  if ssShift in Shift then
+  begin
+    Anchor := CurrentAnchor;
+    FModel.SetSelection(Anchor, Offset - Anchor);
+    FSelectionAnchor := Anchor;
+    FSelecting := True;
+    FClickCount := 1;
+    FLastClickTicks := GetTickCount64;
+    FLastClickPos := Point(X, Y);
+    FClickGesture.PressInText(X, Y, TMarkdownClickCounter.SingleClick);
+    UpdateCaret;
+    Invalidate;
+    Exit;
+  end;
+
+  FClickCount := RegisterClick(X, Y);
+  FClickGesture.PressInText(X, Y, FClickCount);
+
+  case FClickCount of
+    2:
+      begin
+        FModel.SelectWordAt(Offset);
+        FSelecting := False;
+      end;
+    3:
+      begin
+        FModel.SelectLineAt(Offset);
+        FSelecting := False;
+      end;
+  else
+    begin
+      FModel.CaretPosition := Offset;
+      FSelectionAnchor := Offset;
+      FSelecting := True;
+    end;
+  end;
+
+  UpdateCaret;
+  Invalidate;
+end;
+
+procedure TMarkdownEditor.MouseMove(Shift: TShiftState; X, Y: Integer);
+begin
+  inherited MouseMove(Shift, X, Y);
+
+  if FAutoScroller.IsActive then
+  begin
+    FAutoScroller.HandleMove(X, Y);
+    Exit;
+  end;
+
+  if FDragPending or FDraggingSelection then
+  begin
+    UpdateSelectionDrag(X, Y);
+    Exit;
+  end;
+
+  if not FSelecting then
+    Exit;
+
+  UpdateSelectionToPoint(X, Y);
+  UpdateAutoScroll(X, Y);
+end;
+
+procedure TMarkdownEditor.MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+var
+  ClickKind: TMarkdownClickKind;
+begin
+  inherited MouseUp(Button, Shift, X, Y);
+
+  if Button = TMouseButton.mbMiddle then
+  begin
+    FAutoScroller.HandleMiddleUp;
+    Exit;
+  end;
+
+  if Button <> TMouseButton.mbLeft then
+    Exit;
+
+  ClickKind := FClickGesture.Release(X, Y, DragThresholdPx);
+
+  if not FinishSelectionDrag(X, Y) then
+  begin
+    FSelecting := False;
+    if FAutoScrollTimer <> nil then
+      FAutoScrollTimer.Enabled := False;
+  end;
+
+  KeepCaretLineInPreview;
+  RaiseClick(ClickKind);
+end;
+
+// Raised last, once the press is fully handled, so a handler may open a modal
+// window or free the form.
+procedure TMarkdownEditor.RaiseClick(const Kind: TMarkdownClickKind);
+begin
+  case Kind of
+    TMarkdownClickKind.None        : ;
+    TMarkdownClickKind.Click       : Click;
+    TMarkdownClickKind.DoubleClick : DblClick;
+  else
+    raise ENotSupportedException.CreateFmt('Unhandled click kind: %d', [Ord(Kind)]);
+  end;
+end;
+
+// Windows reports a double click but not a third one; the counter takes the
+// user's double-click time and distance to recognise it.  LCL's widgetset may
+// answer 0 for either metric on a platform that has no such setting, so both
+// fall back to the toolkit's own defaults.
+function TMarkdownEditor.RegisterClick(const X, Y: Integer): Integer;
+var
+  Ticks: QWord;
+  Interval: Cardinal;
+  Tolerance: Integer;
+  WithinTime: Boolean;
+  WithinDistance: Boolean;
+  IsRepeat: Boolean;
+begin
+  Ticks := GetTickCount64;
+
+  Interval := GetDoubleClickTime;
+  if Interval = 0 then
+    Interval := TMarkdownClickCounter.DefaultIntervalMilliseconds;
+
+  Tolerance := Max(GetSystemMetrics(SM_CXDOUBLECLK), GetSystemMetrics(SM_CYDOUBLECLK));
+  if Tolerance <= 0 then
+    Tolerance := Mouse.DragThreshold;
+
+  WithinTime := ((Ticks - FLastClickTicks) <= Interval);
+  WithinDistance := (Abs(X - FLastClickPos.X) <= Tolerance) and
+    (Abs(Y - FLastClickPos.Y) <= Tolerance);
+
+  IsRepeat := WithinTime and WithinDistance and (FClickCount >= 1) and (FClickCount < 3);
+  if IsRepeat then
+    Result := FClickCount + 1
+  else
+    Result := 1;
+
+  FLastClickTicks := Ticks;
+  FLastClickPos := Point(X, Y);
+end;
+
+procedure TMarkdownEditor.UpdateSelectionToPoint(const X, Y: Integer);
+var
+  Offset: Integer;
+begin
+  Offset := OffsetFromPoint(X, Y);
+  FModel.SetSelection(FSelectionAnchor, Offset - FSelectionAnchor);
+  UpdateCaret;
+  Invalidate;
+end;
+
+procedure TMarkdownEditor.UpdateAutoScroll(const X, Y: Integer);
+var
+  Outside: Boolean;
+  ShouldScroll: Boolean;
+begin
+  if (FAutoScrollTimer = nil) or not HandleAllocated then
+    Exit;
+
+  Outside := (Y < 0) or (Y > ClientHeight);
+  ShouldScroll := Outside and FSelecting;
+
+  if ShouldScroll then
+    FDragPoint := Point(X, Y);
+
+  FAutoScrollTimer.Enabled := ShouldScroll;
+end;
+
+procedure TMarkdownEditor.HandleAutoScrollTimer(Sender: TObject);
+begin
+  if not FLifetime.IsAlive then
+    Exit;
+
+  if not (FSelecting and HandleAllocated) then
+  begin
+    FAutoScrollTimer.Enabled := False;
+    Exit;
+  end;
+
+  if FDragPoint.Y < 0 then
+    SetScrollOffset(FScrollOffset - LineHeightPx)
+  else
+    SetScrollOffset(FScrollOffset + LineHeightPx);
+
+  UpdateSelectionToPoint(FDragPoint.X, FDragPoint.Y);
+end;
+
+function TMarkdownEditor.DoMouseWheel(Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean;
+var
+  Notches: Double;
+begin
+  if FAutoScroller.IsActive then
+  begin
+    FAutoScroller.Stop;
+    Result := True;
+    Exit;
+  end;
+
+  if ssCtrl in Shift then
+  begin
+    if WheelDelta > 0 then
+      ZoomIn
+    else
+      ZoomOut;
+
+    Result := True;
+    Exit;
+  end;
+
+  Notches := WheelDelta / MouseWheelDeltaPerNotch;
+  SetScrollOffset(FScrollOffset - Round(Notches * WheelLinesPerNotch * LineHeightPx));
+  Result := True;
+end;
+
+procedure TMarkdownEditor.KeyDown(var Key: Word; Shift: TShiftState);
+begin
+  if FAutoScroller.IsActive then
+  begin
+    FAutoScroller.Stop;
+    Key := 0;
+    Exit;
+  end;
+
+  inherited KeyDown(Key, Shift);
+
+  if not ApplyKeyStroke(TMarkdownEditorKeymap.Resolve(Key, Shift)) then
+    Exit;
+
+  Key := 0;
+  RefreshAfterEdit;
+end;
+
+function TMarkdownEditor.ApplyKeyStroke(const Stroke: TEditorKeyStroke): Boolean;
+var
+  Extend: Boolean;
+  Caret: Integer;
+begin
+  if TMarkdownEditorKeyDispatch.Apply(FModel, Stroke, FIndentWidth) then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  // What is left needs the wrapped layout on screen or the host clipboard.
+  Extend := Stroke.Extend;
+  Caret := FModel.CaretPosition;
+  Result := True;
+
+  case Stroke.Action of
+    TEditorKeyAction.MoveUp:
+      begin
+        FModel.BreakUndoCoalescing;
+        MoveVertical(-1, Extend);
+      end;
+    TEditorKeyAction.MoveDown:
+      begin
+        FModel.BreakUndoCoalescing;
+        MoveVertical(1, Extend);
+      end;
+    TEditorKeyAction.MovePageUp:
+      begin
+        FModel.BreakUndoCoalescing;
+        MoveVertical(-VisibleLineCount, Extend);
+      end;
+    TEditorKeyAction.MovePageDown:
+      begin
+        FModel.BreakUndoCoalescing;
+        MoveVertical(VisibleLineCount, Extend);
+      end;
+    TEditorKeyAction.MoveLineStart:
+      begin
+        FModel.BreakUndoCoalescing;
+        SetCaretTo(FRows[RowIndexOfOffset(Caret)].StartOffset, Extend);
+      end;
+    TEditorKeyAction.MoveLineEnd:
+      begin
+        FModel.BreakUndoCoalescing;
+        SetCaretTo(FRows[RowIndexOfOffset(Caret)].EndOffset, Extend);
+      end;
+    TEditorKeyAction.Copy:
+      CopyToClipboard;
+    TEditorKeyAction.Cut:
+      CutToClipboard;
+    TEditorKeyAction.Paste:
+      PasteFromClipboard;
+    TEditorKeyAction.ZoomIn:
+      ZoomIn;
+    TEditorKeyAction.ZoomOut:
+      ZoomOut;
+    TEditorKeyAction.ResetZoom:
+      ResetZoom;
+  else
+    Result := False;
+  end;
+end;
+
+// Text arrives as a whole UTF-8 character: LCL hands each codepoint to
+// UTF8KeyPress before it falls back to the one-byte KeyPress/LM_CHAR path, and
+// clearing the character is what tells the widgetset it was consumed.  Control
+// characters are left alone, so that the key commands deal with them, and the
+// model receives UTF-16, which is what its offsets count.
+procedure TMarkdownEditor.UTF8KeyPress(var UTF8Key: TUTF8Char);
+var
+  Value: string;
+begin
+  if Length(UTF8Key) = 0 then
+    Exit;
+
+  Value := UTF8Decode(UTF8Key);
+  if (Value = '') or (Value[1] < ' ') or (Value[1] = DeleteChar) then
+    Exit;
+
+  FModel.Insert(Value);
+  UTF8Key := '';
+end;
+
+// The native bar reports SB_THUMBTRACK with the pointer position, which is all
+// this handler needs: unlike the VCL unit there is no second source of truth to
+// ask (GetScrollInfo's SIF_TRACKPOS), and Message.Pos is a full LongInt.
+procedure TMarkdownEditor.WMVScroll(var Message: TLMVScroll);
+begin
+  case Message.ScrollCode of
+    SB_LINEUP:
+      SetScrollOffset(FScrollOffset - LineHeightPx);
+    SB_LINEDOWN:
+      SetScrollOffset(FScrollOffset + LineHeightPx);
+    SB_PAGEUP:
+      SetScrollOffset(FScrollOffset - ClientHeight);
+    SB_PAGEDOWN:
+      SetScrollOffset(FScrollOffset + ClientHeight);
+    SB_TOP:
+      SetScrollOffset(0);
+    SB_BOTTOM:
+      SetScrollOffset(MaxScrollOffset);
+    SB_THUMBPOSITION, SB_THUMBTRACK:
+      SetScrollOffset(Message.Pos);
+  end;
+
+  Message.Result := 0;
+end;
+
+procedure TMarkdownEditor.WMEraseBkgnd(var Message: TLMEraseBkgnd);
+begin
+  Message.Result := 1;
+end;
+
+procedure TMarkdownEditor.WMGetDlgCode(var Message: TLMGetDlgCode);
+begin
+  // Tab indents here instead of moving focus, the way any code editor behaves.
+  Message.Result := DLGC_WANTARROWS or DLGC_WANTCHARS or DLGC_WANTTAB;
+end;
+
+procedure TMarkdownEditor.WMSetFocus(var Message: TLMSetFocus);
+begin
+  inherited;
+
+  RecreateCaret;
+  Invalidate;
+end;
+
+// The message loop sends a key here before menu and action shortcuts and before
+// the form's KeyPreview, so the key that ends autoscroll reaches none of them.
+procedure TMarkdownEditor.CNKeyDown(var Message: TLMKeyDown);
+begin
+  if FAutoScroller.IsActive then
+  begin
+    FAutoScroller.Stop;
+    Message.Result := 1;
+    Exit;
+  end;
+
+  inherited;
+end;
+
+// Another window taking the mouse ends autoscroll.  LCL has no reliable
+// capture-changed message, so the release and the loss of focus below are what
+// stop it instead; releasing the button ourselves arrives there too and finds
+// nothing left to stop.
+procedure TMarkdownEditor.WMKillFocus(var Message: TLMKillFocus);
+begin
+  inherited;
+
+  FAutoScroller.Stop;
+  if HandleAllocated then
+    DestroyCaret(Handle);
+  Invalidate;
+end;
+
+procedure TMarkdownEditor.DoContextPopup(MousePos: TPoint; var Handled: Boolean);
+begin
+  if FAutoScroller.TakeSuppressedMenu then
+  begin
+    Handled := True;
+    Exit;
+  end;
+
+  inherited DoContextPopup(MousePos, Handled);
+end;
+
+function TMarkdownEditor.GetAutoScrollEnabled: Boolean;
+begin
+  Result := FAutoScroller.Enabled;
+end;
+
+function TMarkdownEditor.GetIsAutoScrolling: Boolean;
+begin
+  Result := FAutoScroller.IsActive;
+end;
+
+procedure TMarkdownEditor.SetAutoScrollEnabled(const Value: Boolean);
+begin
+  FAutoScroller.Enabled := Value;
+end;
+
+function TMarkdownEditor.CanAutoScroll: Boolean;
+begin
+  Result := (MaxScrollOffset > 0);
+end;
+
+// Deliberately not inherited: the editor paints the text itself from its own
+// offset, so a widgetset blit would only leave stale pixels behind.
+procedure TMarkdownEditor.ScrollBy(DeltaX, DeltaY: Integer);
+begin
+  Invalidate;
+end;
+
+// The editor scrolls by whole pixels; the part of a step below one pixel is
+// kept for the next, or a slow scroll would never move.
+procedure TMarkdownEditor.AutoScrollBy(const Delta: Single);
+var
+  Total: Double;
+  WholePixels: Int64;
+begin
+  Total := FAutoScrollRemainder + Delta;
+  WholePixels := Trunc(Total);
+  FAutoScrollRemainder := Total - WholePixels;
+
+  if WholePixels <> 0 then
+    SetScrollOffset(FScrollOffset + WholePixels);
+end;
+
+procedure TMarkdownEditor.AutoScrollChanged;
+begin
+  FAutoScrollRemainder := 0;
+  Invalidate;
+
+  if Assigned(FOnAutoScrollChange) then
+    FOnAutoScrollChange(Self);
+end;
+
+function TMarkdownEditor.GetText: string;
+begin
+  Result := FModel.Text;
+end;
+
+procedure TMarkdownEditor.SetText(const Value: string);
+begin
+  FDesignSampleActive := False;
+  FModel.LoadText(Value);
+  FScrollOffset := 0;
+  RebuildRows;
+  UpdateScrollBar;
+  ScrollCaretIntoView;
+  UpdateCaret;
+  Invalidate;
+  SchedulePreviewUpdate;
+end;
+
+function TMarkdownEditor.IsTextStored: Boolean;
+begin
+  Result := not FDesignSampleActive;
+end;
+
+procedure TMarkdownEditor.SetThemePreset(const Value: TMarkdownThemePreset);
+begin
+  FThemePreset := Value;
+
+  if FOwnsTheme then
+    FTheme.Free;
+
+  FTheme := TMarkdownTheme.CreatePreset(Value);
+  FOwnsTheme := True;
+  RecomputeMetrics;
+end;
+
+function TMarkdownEditor.GetCaretPosition: Integer;
+begin
+  Result := FModel.CaretPosition;
+end;
+
+procedure TMarkdownEditor.SetCaretPosition(const Value: Integer);
+begin
+  FModel.CaretPosition := Value;
+  ScrollCaretIntoView;
+  UpdateCaret;
+  Invalidate;
+end;
+
+function TMarkdownEditor.GetSelectedText: string;
+begin
+  Result := FModel.SelectedText;
+end;
+
+procedure TMarkdownEditor.SetTheme(const Value: TMarkdownTheme);
+var
+  IsUnchanged: Boolean;
+begin
+  IsUnchanged := (Value = nil) or (Value = FTheme);
+  if IsUnchanged then
+    Exit;
+
+  if FOwnsTheme then
+    FTheme.Free;
+
+  FTheme := Value;
+  FOwnsTheme := False;
+  RecomputeMetrics;
+end;
+
+procedure TMarkdownEditor.SetShowLineNumbers(const Value: Boolean);
+begin
+  if Value = FShowLineNumbers then
+    Exit;
+
+  FShowLineNumbers := Value;
+  RebuildRows;
+  UpdateScrollBar;
+  UpdateCaret;
+  Invalidate;
+end;
+
+end.
