@@ -149,6 +149,9 @@ Source\Layout   framework-neutral layout engine, theme, viewer/editor models,
                 rasterizer, SVG engine
 Source\Vcl      VCL painter, viewer, editor
 Source\Fmx      FMX painter, viewer, editor
+Source\Lcl      LCL (Free Pascal / Lazarus) painter, viewer, editor, image
+                decoder, glyph outliner, math font
+Source\Fpc      Free Pascal RTL shims and the shared compiler contract
 ```
 
 If you only render to HTML, `Source\Core` is all you need.
@@ -157,9 +160,54 @@ For the design-time components, build the packages in `packages\` and install
 the two design packages in the IDE. The full instructions are in
 [packages/INSTALL.md](packages/INSTALL.md).
 
+### Free Pascal / Lazarus (Linux)
+
+The same components are available on Free Pascal and Lazarus. `Source\Core` and
+`Source\Layout` stay framework-neutral; `Source\Lcl` holds the LCL counterparts
+of the VCL layer (painter, viewer, editor, image decoder, glyph outliner, math
+font) and `Source\Fpc` the few RTL shims the port needs.
+
+The Core and Layout sources are Delphi-flavoured, so they are transformed into
+Free Pascal on demand:
+
+```bash
+tools/fpcport/makefpc.sh          # writes build/fpc/ and packages/Markdown4D.Lcl.lpk
+```
+
+`build/fpc` and the package are generated, not checked in. Open
+`packages/Markdown4D.Lcl.lpk` in Lazarus, press *Compile*, then *Install*, and
+`TMarkdownViewer` and `TMarkdownEditor` appear on the *Markdown4D* palette
+page. To build the LCL units without the IDE:
+
+```bash
+tools/fpcport/lclbuild.sh build/fpc build/fpc/Lcl/Examples/Markdown4DLclViewer.pas
+```
+
+The two Delphi demos have LCL counterparts, as self-contained Lazarus projects:
+
+```bash
+lazbuild Examples/StreamingMarkdownLCL/StreamingMarkdownLCL.lpi
+lazbuild Examples/Markdown4DStudioLCL/Markdown4DStudioLCL.lpi
+```
+
+Or open a `.lpi` in the IDE and press *Run* (F9). Both compile against
+`build/fpc`, so run `makefpc.sh` first.
+
+The ported parser can be checked against the same JSON corpora the Delphi test
+suite uses:
+
+```bash
+tools/fpcport/specrun.sh build/fpc    # 770 cases: CommonMark, GFM, math, charts, mermaid
+```
+
+On Unix the LCL viewer and editor need `cthreads` as the *first* unit of the
+program, because the image downloader runs on the RTL thread pool. See
+[docs/FPC.md](docs/FPC.md) for the transformation tooling, the platform
+substitutions and the known differences.
+
 ## Examples
 
-The `Examples\` folder contains four runnable projects:
+The `Examples\` folder contains six runnable projects:
 
 | Project | Framework | Shows |
 |---------|-----------|-------|
@@ -167,6 +215,8 @@ The `Examples\` folder contains four runnable projects:
 | `StreamingMarkdownVCL` | VCL | Text streamed into a chat-style window: incremental render, async images, live charts, diagrams and formulas |
 | `Markdown4DStudioFMX` | FMX | Editor + live preview, with native charts, mermaid diagrams and formulas |
 | `StreamingMarkdownFMX` | FMX | The same streaming window on FireMonkey, with live charts, diagrams and formulas |
+| `Markdown4DStudioLCL` | LCL | The Studio on Free Pascal / Lazarus (Linux), with find bar, view modes, zen mode and light/dark themes |
+| `StreamingMarkdownLCL` | LCL | The streaming window on the LCL (Linux) |
 
 ## Architecture
 
@@ -244,6 +294,9 @@ and every package, and regenerates the conformance dashboard above.
   on the `IExtensionCanvas`, and the bundled chart and mermaid extensions.
 - [docs/STREAMING.md](docs/STREAMING.md) is the streaming integration guide:
   `AppendMarkdown`, debounce, threading, charts and `Text` semantics.
+- [docs/FPC.md](docs/FPC.md) covers the Free Pascal / Lazarus port: the
+  transformation tooling, the LCL layer, the platform substitutions and the
+  known differences.
 - [packages/INSTALL.md](packages/INSTALL.md) describes the package build and
   the IDE install.
 
