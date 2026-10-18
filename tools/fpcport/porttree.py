@@ -332,11 +332,18 @@ def main() -> int:
             if f.stem in skip:
                 continue
             keeper = pristine / d / f.name
-            if not keeper.exists():
+            # The pristine copy is the Delphi original a round starts from, so it
+            # has to track Source/: refresh it whenever the file on disk differs.
+            # Keeping the first copy forever silently ignored every later edit to
+            # the unit -- the tree kept being rebuilt from the stale snapshot.
+            if not keeper.exists() or keeper.read_bytes() != f.read_bytes():
                 shutil.copy2(f, keeper)
             units.append(out / d / f.name)
     # The LCL-side units (Source/Lcl) are already Free Pascal code, not Delphi,
-    # so they are copied verbatim rather than transformed.  They are NOT added
+    # so they are copied verbatim rather than transformed.  Consequence: they
+    # must compile exactly as written -- FPC rejects inline declarations
+    # (`for var X in ...`), and the rewrite that ports those away only runs on
+    # the Core/Layout tree, not here.  They are NOT added
     # to `units`: they depend on the Lazarus LCL, which this driver's plain RTL
     # search path does not carry.  tools/fpcport/lclbuild.sh compiles them
     # against the finished tree instead.

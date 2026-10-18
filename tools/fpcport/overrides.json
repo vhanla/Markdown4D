@@ -1146,5 +1146,6 @@
  "Layout/Markdown4D.Viewer.ScrollBar.pas:TMarkdownScrollBarGeometry.ThumbRect:Right": "Double",
  "Layout/Markdown4D.Viewer.ScrollBar.pas:TMarkdownScrollBarGeometry.ThumbRect:Top": "Double",
  "Layout/Markdown4D.Viewer.ScrollBar.pas:TMarkdownScrollBarGeometry.ThumbRect:TrackHeight": "Double",
- "Layout/Markdown4D.Viewer.Shared.pas:TMarkdownViewerShared.IsInsideFolder:Root": "string"
+ "Layout/Markdown4D.Viewer.Shared.pas:TMarkdownViewerShared.IsInsideFolder:Root": "string",
+ "Layout/Markdown4D.Viewer.Shared.pas:TMarkdownViewerShared.IsMonospaceFamilyName:Candidate": "string"
 }

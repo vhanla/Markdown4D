@@ -754,17 +754,35 @@ begin
 end;
 
 class function TMarkdownLclPainter.LookupFamilyName(const FamilyName: string): string;
+var
+  Generic: string;
+  Candidate: string;
 begin
-  if TMarkdownViewerShared.TryResolveGenericFamily(FamilyName, Result) then
-    Exit;
-
-  if IsFamilyInstalled(FamilyName) then
+  // The generic mapping and DefaultFallbackFamilyName are Windows family names
+  // ('Segoe UI', 'Consolas', 'Georgia'), so off Windows they are absent and the
+  // widgetset substitutes whatever it likes.  For a monospace family that is the
+  // proportional UI font, which silently shifts every column of a code block and
+  // of an ASCII-art drawing.  A monospace request therefore falls back to the
+  // first *installed* family in MonospaceFamilyCandidates.
+  if TMarkdownViewerShared.TryResolveGenericFamily(FamilyName, Generic) then
   begin
-    Result := FamilyName;
-    Exit;
-  end;
+    // 'sans-serif', 'serif' and 'math' keep the family they map to, installed or
+    // not, exactly as before; only 'monospace' (-> 'Consolas') is re-routed.
+    if IsFamilyInstalled(Generic)
+      or (not TMarkdownViewerShared.IsMonospaceFamilyName(Generic)) then
+      Exit(Generic);
+  end
+  else if IsFamilyInstalled(FamilyName) then
+    Exit(FamilyName)
+  else if not TMarkdownViewerShared.IsMonospaceFamilyName(FamilyName) then
+    Exit(DefaultFallbackFamilyName);
 
   Result := DefaultFallbackFamilyName;
+  // No inline declaration here: the LCL layer is copied into the port verbatim,
+  // and FPC rejects `for var X in ...` (see tools/fpcport/porttree.py).
+  for Candidate in MonospaceFamilyCandidates do
+    if IsFamilyInstalled(Candidate) then
+      Exit(Candidate);
 end;
 
 class function TMarkdownLclPainter.IsFamilyInstalled(const FamilyName: string): Boolean;

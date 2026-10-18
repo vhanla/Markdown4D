@@ -14,6 +14,11 @@ type
     class function AlphaOf(const Color: TLayoutColor): Byte;
     class function FontStylesOf(const Font: TMarkdownFontStyle): TFontStyles;
     class function TryResolveGenericFamily(const FamilyName: string; out Resolved: string): Boolean;
+    // True when the family name is a monospace one: either the generic
+    // 'monospace' or a concrete entry of MonospaceFamilyCandidates.  Painters
+    // use it so a missing monospace family is replaced by another monospace
+    // family instead of the proportional UI font.
+    class function IsMonospaceFamilyName(const FamilyName: string): Boolean;
     class function IsHttpUrl(const Url: string): Boolean;
     class function TryResolveImageUrl(const Source, BaseUrl, DocumentFolder: string;
       out Url: string): Boolean; overload;
@@ -74,6 +79,17 @@ begin
     Resolved := '';
     Result := False;
   end;
+end;
+
+class function TMarkdownViewerShared.IsMonospaceFamilyName(const FamilyName: string): Boolean;
+begin
+  Result := SameText(FamilyName, MonospaceFamilyName);
+  if Result then
+    Exit;
+
+  for var Candidate in MonospaceFamilyCandidates do
+    if SameText(FamilyName, Candidate) then
+      Exit(True);
 end;
 
 class function TMarkdownViewerShared.IsHttpUrl(const Url: string): Boolean;

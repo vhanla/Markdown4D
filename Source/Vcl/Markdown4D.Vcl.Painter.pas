@@ -633,17 +633,27 @@ begin
 end;
 
 class function TMarkdownVclPainter.LookupFamilyName(const FamilyName: string): string;
+var
+  Generic: string;
 begin
-  if TMarkdownViewerShared.TryResolveGenericFamily(FamilyName, Result) then
-    Exit;
-
-  if IsFamilyInstalled(FamilyName) then
+  // Same rule as the LCL painter: a monospace family must resolve to another
+  // monospace family, never to the proportional UI font (see
+  // TMarkdownViewerShared.IsMonospaceFamilyName).
+  if TMarkdownViewerShared.TryResolveGenericFamily(FamilyName, Generic) then
   begin
-    Result := FamilyName;
-    Exit;
-  end;
+    if IsFamilyInstalled(Generic)
+      or (not TMarkdownViewerShared.IsMonospaceFamilyName(Generic)) then
+      Exit(Generic);
+  end
+  else if IsFamilyInstalled(FamilyName) then
+    Exit(FamilyName)
+  else if not TMarkdownViewerShared.IsMonospaceFamilyName(FamilyName) then
+    Exit(DefaultFallbackFamilyName);
 
   Result := DefaultFallbackFamilyName;
+  for var Candidate in MonospaceFamilyCandidates do
+    if IsFamilyInstalled(Candidate) then
+      Exit(Candidate);
 end;
 
 class function TMarkdownVclPainter.IsFamilyInstalled(const FamilyName: string): Boolean;
