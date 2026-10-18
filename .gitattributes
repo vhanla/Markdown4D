@@ -19,6 +19,10 @@
 *.json    text eol=lf
 *.yml     text eol=lf
 
+# The porting scripts are Unix-only; keep LF so the shebang survives a checkout
+# on a machine that defaults to CRLF.
+*.sh      text eol=lf
+
 # Binary resources: never touch these.
 *.bmp     binary
 *.ico     binary

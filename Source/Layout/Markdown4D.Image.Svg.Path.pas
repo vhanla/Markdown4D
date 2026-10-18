@@ -469,9 +469,19 @@ begin
   if not Result then
     Exit;
 
-  const ControlOne = TLayoutPointF.Create(Origin.X + Value, Origin.Y + FReader.ReadNumber);
-  const ControlTwo = TLayoutPointF.Create(Origin.X + FReader.ReadNumber, Origin.Y + FReader.ReadNumber);
-  const Stop = TLayoutPointF.Create(Origin.X + FReader.ReadNumber, Origin.Y + FReader.ReadNumber);
+  // Every coordinate is read into its own local before the points are built:
+  // the reader consumes input as it goes, and the evaluation order of a call's
+  // arguments is not defined, so two reads in one expression arrive swapped.
+  const ControlOneX = Value;
+  const ControlOneY = FReader.ReadNumber;
+  const ControlTwoX = FReader.ReadNumber;
+  const ControlTwoY = FReader.ReadNumber;
+  const StopX = FReader.ReadNumber;
+  const StopY = FReader.ReadNumber;
+
+  const ControlOne = TLayoutPointF.Create(Origin.X + ControlOneX, Origin.Y + ControlOneY);
+  const ControlTwo = TLayoutPointF.Create(Origin.X + ControlTwoX, Origin.Y + ControlTwoY);
+  const Stop = TLayoutPointF.Create(Origin.X + StopX, Origin.Y + StopY);
 
   AddMany(CubicPoints(FState.Current, ControlOne, ControlTwo, Stop));
   FState.LastCubicControl := ControlTwo;
@@ -494,8 +504,13 @@ begin
     ControlOne := TLayoutPointF.Create(2 * Start.X - FState.LastCubicControl.X,
       2 * Start.Y - FState.LastCubicControl.Y);
 
-  const ControlTwo = TLayoutPointF.Create(Origin.X + Value, Origin.Y + FReader.ReadNumber);
-  const Stop = TLayoutPointF.Create(Origin.X + FReader.ReadNumber, Origin.Y + FReader.ReadNumber);
+  const ControlTwoX = Value;
+  const ControlTwoY = FReader.ReadNumber;
+  const StopX = FReader.ReadNumber;
+  const StopY = FReader.ReadNumber;
+
+  const ControlTwo = TLayoutPointF.Create(Origin.X + ControlTwoX, Origin.Y + ControlTwoY);
+  const Stop = TLayoutPointF.Create(Origin.X + StopX, Origin.Y + StopY);
 
   AddMany(CubicPoints(Start, ControlOne, ControlTwo, Stop));
   FState.LastCubicControl := ControlTwo;
@@ -510,8 +525,13 @@ begin
   if not Result then
     Exit;
 
-  const Control = TLayoutPointF.Create(Origin.X + Value, Origin.Y + FReader.ReadNumber);
-  const Stop = TLayoutPointF.Create(Origin.X + FReader.ReadNumber, Origin.Y + FReader.ReadNumber);
+  const ControlX = Value;
+  const ControlY = FReader.ReadNumber;
+  const StopX = FReader.ReadNumber;
+  const StopY = FReader.ReadNumber;
+
+  const Control = TLayoutPointF.Create(Origin.X + ControlX, Origin.Y + ControlY);
+  const Stop = TLayoutPointF.Create(Origin.X + StopX, Origin.Y + StopY);
 
   AddMany(QuadraticPoints(FState.Current, Control, Stop));
   FState.LastQuadraticControl := Control;
@@ -558,7 +578,10 @@ begin
   if not Result then
     Exit;
 
-  const Stop = TLayoutPointF.Create(Origin.X + FReader.ReadNumber, Origin.Y + FReader.ReadNumber);
+  const StopX = FReader.ReadNumber;
+  const StopY = FReader.ReadNumber;
+
+  const Stop = TLayoutPointF.Create(Origin.X + StopX, Origin.Y + StopY);
 
   AddMany(ArcPoints(FState.Current, Stop, RadiusX, RadiusY, Rotation, LargeArc, Sweep));
   FState.HadCubic := False;

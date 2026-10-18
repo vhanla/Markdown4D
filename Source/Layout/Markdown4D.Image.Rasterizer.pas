@@ -685,8 +685,13 @@ begin
   const OutNormalX = -OutY / OutLength * HalfWidth;
   const OutNormalY = OutX / OutLength * HalfWidth;
 
-  for var Side in [1, -1] do
+  // Both sides of the joint are visited by a counted loop rather than
+  // `for Side in [1, -1]`: a compiler may read that list as a set, where -1
+  // wraps to 255 and throws the far side of the join across the canvas.
+  for var SideIndex := 0 to 1 do
   begin
+    const Side = 1 - 2 * SideIndex;
+
     const FromX = Corner.X + Side * InNormalX;
     const FromY = Corner.Y + Side * InNormalY;
     const ToX = Corner.X + Side * OutNormalX;

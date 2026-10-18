@@ -1,9 +1,14 @@
 unit StreamingMarkdown.Demo;
 
 // Framework-neutral pieces shared by the StreamingMarkdown chat demos
-// (StreamingMarkdownVCL / StreamingMarkdownFMX): the chunking state machine and
-// the sample answer. Each form keeps its own framework-specific controls,
-// layout, timers and scrolling.
+// (StreamingMarkdownVCL / StreamingMarkdownFMX / StreamingMarkdownLCL): the
+// chunking state machine and the sample answer.  Each form keeps its own
+// framework-specific controls, layout, timers and scrolling.
+
+// The compiler contract shared by every unit that crosses between Delphi and
+// Free Pascal; see docs/FPC.md.  It is what makes this unit compile under FPC's
+// Delphi-compatible dialect (strings as UTF-16 code units, scoped enums).
+{$I ../../Source/Markdown4D.Fpc.inc}
 
 interface
 
@@ -29,7 +34,8 @@ type
 implementation
 
 uses
-  System.Math;
+  // Free Pascal resolves no dotted unit names; see docs/FPC.md.
+  {$IFDEF FPC}Math{$ELSE}System.Math{$ENDIF};
 
 { TMarkdownStreamer }
 
@@ -115,9 +121,13 @@ begin
 end;
 
 function TMarkdownStreamer.NextChunk(const RequestedLength: Integer): string;
+var
+  // Declared here rather than inline: Free Pascal has no inline declarations.
+  Remaining: Integer;
+  ChunkLength: Integer;
 begin
-  const Remaining = Length(FText) - FPosition + 1;
-  const ChunkLength = Min(Remaining, Max(0, RequestedLength));
+  Remaining := Length(FText) - FPosition + 1;
+  ChunkLength := Min(Remaining, Max(0, RequestedLength));
   Result := Copy(FText, FPosition, ChunkLength);
   Inc(FPosition, ChunkLength);
 end;

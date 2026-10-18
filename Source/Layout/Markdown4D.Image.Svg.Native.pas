@@ -93,6 +93,12 @@ const
   UserSpaceOnUseValue = 'userSpaceOnUse';
 
 type
+  // One entry of the named-colour table `TSvgValue.TryParseColor` searches.
+  TSvgNamedColor = record
+    Name: string;
+    Value: Cardinal;
+  end;
+
   // Reads the values an SVG writes into its attributes: lengths, fractions,
   // colours, references and the style attribute that can carry any of them.
   TSvgValue = class
@@ -392,7 +398,7 @@ end;
 
 class function TSvgValue.TryParseColor(const Text: string; out Color: TLayoutColor): Boolean;
 const
-  Named: array[0..15] of record Name: string; Value: Cardinal; end = (
+  Named: array[0..15] of TSvgNamedColor = (
     (Name: 'black'; Value: $FF000000), (Name: 'white'; Value: $FFFFFFFF),
     (Name: 'red'; Value: $FFFF0000), (Name: 'lime'; Value: $FF00FF00),
     (Name: 'blue'; Value: $FF0000FF), (Name: 'yellow'; Value: $FFFFFF00),
@@ -462,7 +468,8 @@ begin
     Exit;
   end;
 
-  for var Entry in Named do
+  var Entry: TSvgNamedColor;
+  for Entry in Named do
   begin
     if Entry.Name = Trimmed then
     begin

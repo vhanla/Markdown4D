@@ -45,5 +45,26 @@ Tests/results/
 packages/bpl/
 packages/dcp/
 
+# Free Pascal / Lazarus build output: the ported tree is generated on demand by
+# tools/fpcport/makefpc.sh, and Lazarus regenerates the package's main unit and
+# its compiled units.
+build/
+packages/lib/
+packages/Markdown4D.Lcl.pas
+*.ppu
+*.o
+*.compiled
+
+# The LCL examples are built in place by the IDE or by tools/fpcport/lclbuild.sh.
+Examples/StreamingMarkdownLCL/StreamingMarkdownLCL
+Examples/Markdown4DStudioLCL/Markdown4DStudioLCL
+
+# Lazarus session state (window layout, open editors).
+*.lps
+
+# Tooling bytecode
+__pycache__/
+*.pyc
+
 # Local secrets (DPM API key); never committed.
 .env

@@ -28,7 +28,10 @@ type
     class function KeyOf(const Text: string; const Font: TMarkdownFontStyle;
       const PixelsPerInch: Integer): TKey; static;
     class function KeysEqual(const Left, Right: TKey): Boolean; static;
-    class function KeyHash(const Key: TKey): Integer; static;
+    // Generics.Defaults declares the hasher's result as Integer in Delphi but
+    // as UInt32 in FPC, so the platform's own spelling is selected here rather
+    // than forcing either one onto the other.
+    class function KeyHash(const Key: TKey): {$IFDEF FPC}UInt32{$ELSE}Integer{$ENDIF}; static;
 
   public
     const
@@ -67,7 +70,7 @@ end;
 
 // Each part feeds the next as its initial value, so no arithmetic can overflow
 // in a host that compiles with overflow checks.
-class function TMarkdownMeasureCache.KeyHash(const Key: TKey): Integer;
+class function TMarkdownMeasureCache.KeyHash(const Key: TKey): {$IFDEF FPC}UInt32{$ELSE}Integer{$ENDIF};
 begin
   const TextHash = THashBobJenkins.GetHashValue(Key.Text);
   const FamilyHash = THashBobJenkins.GetHashValue(Key.Font.FamilyName);
