@@ -8,7 +8,15 @@ way the VCL ones are dropped on a Delphi form.  It is generated rather than
 hand-maintained because the unit list has to follow the source tree.
 
 Usage:
-    python3 makelpkg.py --tree build/fpc --out packages/Markdown4D.Lcl.lpk
+    python3 makelpkg.py --tree build/fpc --out packages/markdown4d_lcl.lpk
+
+The file name has to match the package name: Lazarus refuses a package link
+whose .lpk is not named after the package it declares (`IsMakingSense` in
+packagelinkintf.pas), so `markdown4d_lcl.lpk` -- not `Markdown4D.Lcl.lpk`.
+
+It also has to carry `<UsageOptions><UnitPath Value="$(PkgOutDir)"/>
+</UsageOptions>`: without it a project that requires the package gets no unit
+path for it and fails with "Can't find unit Markdown4D".
 """
 
 from __future__ import annotations
@@ -55,7 +63,7 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--tree', default='build/fpc',
                     help='the ported tree (see makefpc.sh)')
-    ap.add_argument('--out', default='packages/Markdown4D.Lcl.lpk')
+    ap.add_argument('--out', default='packages/markdown4d_lcl.lpk')
     ap.add_argument('--name', default='markdown4d_lcl')
     args = ap.parse_args()
 
@@ -105,6 +113,9 @@ def main() -> int:
         <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
       </SearchPaths>
     </CompilerOptions>
+    <UsageOptions>
+      <UnitPath Value="$(PkgOutDir)"/>
+    </UsageOptions>
   </Package>
 </CONFIG>
 '''

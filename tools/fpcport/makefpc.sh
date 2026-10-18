@@ -1,7 +1,7 @@
 #!/bin/bash
 # Generate the Free Pascal source tree, and the Lazarus package that wraps it,
 # from the Delphi sources.  Nothing here is checked in: `build/fpc` is produced
-# on demand and `packages/Markdown4D.Lcl.lpk` is rewritten to match it.
+# on demand and `packages/markdown4d_lcl.lpk` is rewritten to match it.
 #
 #   makefpc.sh [output-tree]
 #
@@ -32,7 +32,7 @@ if [ -n "${FPC_UNITS:-}" ]; then
 fi
 
 python3 "$HERE/porttree.py" "${ARGS[@]}"
-python3 "$HERE/makelpkg.py" --tree "$OUT" --out "$ROOT/packages/Markdown4D.Lcl.lpk"
+python3 "$HERE/makelpkg.py" --tree "$OUT" --out "$ROOT/packages/markdown4d_lcl.lpk"
 
 echo
 echo "LCL units and examples can now be built with:"

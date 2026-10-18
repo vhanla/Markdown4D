@@ -50,7 +50,7 @@ packages/dcp/
 # its compiled units.
 build/
 packages/lib/
-packages/Markdown4D.Lcl.pas
+packages/markdown4d_lcl.pas
 *.ppu
 *.o
 *.compiled
@@ -61,6 +61,9 @@ Examples/Markdown4DStudioLCL/Markdown4DStudioLCL
 
 # Lazarus session state (window layout, open editors).
 *.lps
+
+# Lazarus keeps a copy of each project file under backup/.
+backup/
 
 # Tooling bytecode
 __pycache__/

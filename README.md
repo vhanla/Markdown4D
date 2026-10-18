@@ -171,11 +171,11 @@ The Core and Layout sources are Delphi-flavoured, so they are transformed into
 Free Pascal on demand:
 
 ```bash
-tools/fpcport/makefpc.sh          # writes build/fpc/ and packages/Markdown4D.Lcl.lpk
+tools/fpcport/makefpc.sh          # writes build/fpc/ and packages/markdown4d_lcl.lpk
 ```
 
 `build/fpc` and the package are generated, not checked in. Open
-`packages/Markdown4D.Lcl.lpk` in Lazarus, press *Compile*, then *Install*, and
+`packages/markdown4d_lcl.lpk` in Lazarus, press *Compile*, then *Install*, and
 `TMarkdownViewer` and `TMarkdownEditor` appear on the *Markdown4D* palette
 page. To build the LCL units without the IDE:
 

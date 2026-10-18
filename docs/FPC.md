@@ -20,15 +20,15 @@ Nothing about the Delphi side changes. `Source\Core`, `Source\Layout`,
 | `Examples\Markdown4DStudioLCL`, `Examples\StreamingMarkdownLCL` | the two demos as Lazarus projects |
 | `tools\fpcport` | the transformation and build tooling |
 | `build\fpc` | the generated FPC tree (**not** checked in) |
-| `packages\Markdown4D.Lcl.lpk` | the Lazarus package (**generated**) |
+| `packages\markdown4d_lcl.lpk` | the Lazarus package (**generated**) |
 
 ## Building
 
 ```bash
-tools/fpcport/makefpc.sh            # build/fpc + packages/Markdown4D.Lcl.lpk
+tools/fpcport/makefpc.sh            # build/fpc + packages/markdown4d_lcl.lpk
 ```
 
-Then either open `packages/Markdown4D.Lcl.lpk` in the Lazarus IDE and press
+Then either open `packages/markdown4d_lcl.lpk` in the Lazarus IDE and press
 *Compile* / *Install*, or build a single unit or example from the command line:
 
 ```bash
