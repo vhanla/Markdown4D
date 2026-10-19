@@ -193,7 +193,7 @@ wrinkles:
 |--------------|----------|
 | `TCanvas`, `TColor`, `TFont` metrics | `TCanvas` plus a `TLazIntfImage` the painter composites through, so the premultiplied BGRA of the rasterizer keeps its per-pixel alpha |
 | window style `WS_VSCROLL` + `SetScrollInfo`/`WM_VSCROLL` | `TScrollingWinControl` with its own `VertScrollBar` (`Range`/`Page`/`Position` + `UpdateScrollbars`), `AutoScroll` off so the widgetset cannot recompute the range |
-| native scroll blit | the control renders its visible slice at `OriginY` and blits the buffer down by the scroll offset; `ScrollBy` is overridden to just invalidate |
+| native scroll blit | the control renders its visible slice at `OriginY` and blits the buffer back at the scroll offset where the canvas itself is what the widgetset scrolls (GTK's `GtkLayout`, because its origin is the top of the content) and at 0 where it is not (Qt and Win32 keep the canvas origin at the top of the visible slice); `ScrollBy` is overridden to just invalidate |
 | Win32 caret (`CreateCaret`/`SetCaretPos`) | `LCLIntf`'s caret, backed by the widgetset; `CF_UNICODETEXT` and `EClipboardException` become `Clipboard.AsText` with `UTF8Encode`/`UTF8Decode` |
 | `KeyPress(var Key: Char)` | `UTF8KeyPress(var UTF8Key: TUTF8Char)`, so a whole codepoint arrives before the one-byte fallback path |
 | `AddFontMemResourceEx` | the bundled OTF is unpacked to a temp file and registered with fontconfig, which is what Pango resolves through; the resource is embedded with `{$R '../Fonts/STIXTwoMath.res'}` |

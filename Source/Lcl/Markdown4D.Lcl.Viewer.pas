@@ -25,12 +25,17 @@ unit Markdown4D.Lcl.Viewer;
 //      only grow a scrollbar on a TScrollingWinControl, so the viewer derives
 //      from that and drives its VertScrollBar.  ScrollBy is overridden to
 //      repaint instead of blitting: the content is drawn from the model offset.
-//    * ORIGIN    -- the VCL scrolled by moving the canvas origin (SetWindowOrgEx,
-//      clip included).  GTK3's scrolling window instead moves the GtkLayout bin
-//      window, so the canvas origin is already the top of the visible slice:
-//      the viewer renders that slice into its buffer one scroll up (the
-//      painter's OriginY, which keeps SetClip in the same space) and blits the
-//      buffer back down at the offset, which is what Paint does.
+//    * ORIGIN    -- both viewers render into a buffer one scroll up, with the
+//      painter's OriginY naming the document Y that maps to the buffer's top
+//      (which keeps SetClip in the same space), and then blit that slice back.
+//      Where the slice belongs depends on what the canvas origin is: GTK's
+//      TScrollingWinControl is a GtkScrolledWindow around a GtkLayout and the
+//      control paints on the layout's window, so the canvas origin is the top of
+//      the *content* and the buffer goes down at the scroll offset.  Everywhere
+//      else the canvas origin is the top of the visible slice already (Qt only
+//      ever scrolls the children of a TScrollingWinControl, and this control has
+//      none), so the buffer goes at 0, as it does on VCL.  See
+//      CanvasScrollsWithContent.
 //    * STRINGS   -- every string that crosses into an LCL API is UTF8Encode'd;
 //      the neutral layer speaks UTF-16 (see Markdown4D.Fpc.inc).
 //    * CLIPBOARD -- Windows raises EClipboardException; LCL has no such type, so
@@ -55,6 +60,8 @@ uses
   Menus,
   ExtCtrls,
   Clipbrd,
+  InterfaceBase,
+  LCLPlatformDef,
   Markdown4D.Ast.Interfaces,
   Markdown4D.Layout.Interfaces,
   Markdown4D.Layout.DisplayList,
@@ -189,6 +196,7 @@ type
     function IsImageBroken(const Source: string): Boolean;
     procedure RenderToBuffer;
     procedure EnsureBufferSize;
+    function CanvasScrollsWithContent: Boolean;
     procedure ScrollToBottom;
     procedure SetScrollPosition(const Value: Single);
     procedure ScrollToMatch(const Match: TMarkdownFoundRange);
@@ -816,11 +824,27 @@ begin
   EnsureBufferSize;
   RenderToBuffer;
   PaintAutoScrollOrigin;
-  // GTK3's scrolling window moves the GtkLayout bin window, so the canvas origin
-  // is the top of the visible slice rather than the top of the widget: the
-  // buffer, which holds that slice, lands at the scroll offset.  Drawing it at 0
-  // would push it one screen further up and out of the clip.
-  Canvas.Draw(0, Round(FModel.ScrollOffset), FBuffer);
+  // The buffer holds the visible slice with its top at buffer Y 0, so it belongs
+  // at the canvas position of that slice: 0 where the canvas origin is the top of
+  // the visible slice, the scroll offset where the canvas is the scrolled content
+  // itself (CanvasScrollsWithContent).
+  if CanvasScrollsWithContent then
+    Canvas.Draw(0, Round(FModel.ScrollOffset), FBuffer)
+  else
+    Canvas.Draw(0, 0, FBuffer);
+end;
+
+// Whether the widgetset paints the control on the window that the scroll moves.
+// GTK is the one that does: a TScrollingWinControl is a GtkScrolledWindow around
+// a GtkLayout, the control's canvas is the layout's window, and the canvas origin
+// is therefore the top of the content -- the visible slice only lines up if it is
+// blitted at the scroll offset.  Elsewhere the canvas origin is the control's top
+// left, which is already the top of the visible slice.  Qt, for one, scrolls a
+// TScrollingWinControl by moving its child controls (this control has none), and
+// Win32 scrolls pixels under a canvas whose origin does not move.
+function TMarkdownViewer.CanvasScrollsWithContent: Boolean;
+begin
+  Result := (WidgetSet <> nil) and (WidgetSet.LCLPlatform in [lpGtk, lpGtk2, lpGtk3]);
 end;
 
 procedure TMarkdownViewer.PaintAutoScrollOrigin;

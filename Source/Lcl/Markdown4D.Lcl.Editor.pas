@@ -20,9 +20,12 @@ unit Markdown4D.Lcl.Editor;
 //      drove the native bar with SetScrollInfo/WM_VSCROLL.  LCL's GTK3 widgets
 //      only grow a scrollbar on a TScrollingWinControl, so the editor derives
 //      from that and drives its VertScrollBar.  ScrollBy is overridden to
-//      repaint instead of blitting, and Paint draws the buffer at the scroll
-//      offset, because GTK3's scrolling window moves the GtkLayout bin window
-//      and the canvas origin is therefore the top of the visible slice.
+//      repaint instead of blitting: the content is drawn from the scroll offset
+//      into a buffer, which Paint blits back.  Where it blits depends on the
+//      widgetset: GTK's scrolling window paints on the GtkLayout, whose origin
+//      is the top of the content, so the buffer goes down at the offset; on the
+//      widgetsets that do not scroll the canvas (Qt, Win32) it goes at 0.  See
+//      CanvasScrollsWithContent.
 //
 //    * CARET -- Winapi's CreateCaret/SetCaretPos/ShowCaret map one for one
 //      onto LCLIntf's, which the GTK3 widgetset implements with a real blinking
@@ -53,6 +56,8 @@ uses
   ExtCtrls,
   Menus,
   Forms,
+  InterfaceBase,
+  LCLPlatformDef,
   Markdown4D.Ast.Interfaces,
   Markdown4D.Layout.Interfaces,
   Markdown4D.Theme,
@@ -228,6 +233,7 @@ type
     procedure CutToClipboard;
     procedure PasteFromClipboard;
     procedure EnsureBufferSize;
+    function CanvasScrollsWithContent: Boolean;
     procedure RecomputeMetrics;
     function GetText: string;
     procedure SetText(const Value: string);
@@ -1046,11 +1052,27 @@ begin
   EnsureBufferSize;
   RenderContent(FBuffer.Canvas, Max(1, ClientWidth), Max(1, ClientHeight), ContentPixelsPerInch, FScrollOffset);
   PaintAutoScrollOrigin;
-  // GTK3's scrolling window moves the GtkLayout bin window, so the canvas origin
-  // is the top of the visible slice rather than the top of the widget: the
-  // buffer, which holds that slice, lands at the scroll offset.  Drawing it at 0
-  // would push it one screen further up and out of the clip.
-  Canvas.Draw(0, FScrollOffset, FBuffer);
+  // The buffer holds the visible slice with its top at buffer Y 0, so it belongs
+  // at the canvas position of that slice: 0 where the canvas origin is the top of
+  // the visible slice, the scroll offset where the canvas is the scrolled content
+  // itself (CanvasScrollsWithContent).
+  if CanvasScrollsWithContent then
+    Canvas.Draw(0, FScrollOffset, FBuffer)
+  else
+    Canvas.Draw(0, 0, FBuffer);
+end;
+
+// Whether the widgetset paints the control on the window that the scroll moves.
+// GTK is the one that does: a TScrollingWinControl is a GtkScrolledWindow around
+// a GtkLayout, the control's canvas is the layout's window, and the canvas origin
+// is therefore the top of the content -- the visible slice only lines up if it is
+// blitted at the scroll offset.  Elsewhere the canvas origin is the control's top
+// left, which is already the top of the visible slice.  Qt, for one, scrolls a
+// TScrollingWinControl by moving its child controls (this control has none), and
+// Win32 scrolls pixels under a canvas whose origin does not move.
+function TMarkdownEditor.CanvasScrollsWithContent: Boolean;
+begin
+  Result := (WidgetSet <> nil) and (WidgetSet.LCLPlatform in [lpGtk, lpGtk2, lpGtk3]);
 end;
 
 procedure TMarkdownEditor.PaintAutoScrollOrigin;
