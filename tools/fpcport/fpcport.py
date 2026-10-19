@@ -982,7 +982,7 @@ def inject_compat_uses(lines: List[str], masks: List[str]) -> None:
     """
     # Implementation clause first: inserting there leaves the interface clause's
     # indices (used by the second insertion) untouched.
-    if any('ParseJsonOrNil' in l for l in lines) \
+    if any('ParseJsonOrNil' in l or 'JsonAsInt64' in l for l in lines) \
             and not any(re.search(r'\bMarkdown4D\.Fpc\.Json\b', l)
                         for l in lines):
         _append_uses_unit(lines, masks, 'Markdown4D.Fpc.Json', True)
@@ -1018,6 +1018,50 @@ def rewrite_json_parse_calls(lines: List[str], masks: List[str]) -> None:
         if n:
             lines[i] = JSON_PARSE_RE.sub(repl, lines[i])
             masks[i] = new_code
+
+
+
+# vcl-compat's TJSONNumber.GetAsInt64 parses the number's text with the 32-bit
+# StrToInt wherever Char is one byte, so a value above High(Integer) raises
+# EConvertError; Delphi's AsInt64 is 64-bit everywhere.  The theme stores every
+# color as an ARGB integer, and an opaque one is always above High(Integer), so
+# reloading the theme (a zoom step scales it through SaveToJson/LoadFromJson)
+# failed with `"4280230696" is an invalid integer`.  Markdown4D.Fpc.Json reads
+# the number's own text at full width instead.
+#
+# The receiver is an identifier chain with at most one call, whose arguments may
+# themselves hold one level of parentheses (`RequireNumber(RequireValue(Root,
+# Name), Name)`).
+JSON_INT64_RE = re.compile(
+    r'(?P<number>[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*'
+    r'(?:\((?:[^()]|\([^()]*\))*\))?)\s*\.\s*AsInt64\b')
+
+JSON_INT64_CALL_RE = re.compile(r'\.\s*AsInt64\b')
+
+
+def rewrite_json_int64_reads(lines: List[str], masks: List[str]) -> None:
+    """Retarget `<number>.AsInt64` at `JsonAsInt64(<number>)`.
+
+    Applied unconditionally: the compat routine reads the same number the
+    property does, at the width Delphi always used.
+    """
+    def repl(m: 're.Match') -> str:
+        return 'JsonAsInt64(' + m.group('number') + ')'
+
+    fired = 0
+    for i, code in enumerate(masks):
+        if 'AsInt64' not in code:
+            continue
+        new_code, n = JSON_INT64_RE.subn(repl, code)
+        if n:
+            fired += n
+            lines[i] = JSON_INT64_RE.sub(repl, lines[i])
+            masks[i] = new_code
+
+    # A call site the pattern does not recognize would silently keep reading
+    # through the 32-bit parse, so fail instead.
+    if fired == 0 and any(JSON_INT64_CALL_RE.search(code) for code in masks):
+        raise ValueError('JSON AsInt64 read not recognized by JSON_INT64_RE')
 
 
 
@@ -1270,6 +1314,7 @@ def transform(path: Path, types: Dict[str, str], manifest: Dict[str, str],
         rewrite_generic_static_calls(lines, pre_masks)
         rewrite_generic_call_parens(lines, pre_masks)
         rewrite_json_parse_calls(lines, pre_masks)
+        rewrite_json_int64_reads(lines, pre_masks)
         rewrite_tag_filter_calls(lines, pre_masks)
         inject_compat_uses(lines, pre_masks)
     state = LexState()

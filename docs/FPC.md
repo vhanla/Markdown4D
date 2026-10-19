@@ -136,12 +136,13 @@ uses
 * **call-site retargeting** — the handful of places where an RTL behaviour
   differs in a way the port cannot paper over by declaring a symbol are rewritten
   to a routine in `Source\Fpc`: `TJSONObject.ParseJSONValue(X)` becomes
-  `ParseJsonOrNil(X)` and `FTagFilterRegex.Replace(X, EscapedLessThan)` becomes
-  `FilterDisallowedTags(X)`. Both rewrites are unconditional, both compile in
-  Delphi too, and both are *checked*: if a call site stops matching, the
-  transformation fails loudly instead of silently leaving the RTL behaviour in
-  place. See *Compiler and vcl-compat divergences* below for what each one
-  repairs.
+  `ParseJsonOrNil(X)`, `X.AsInt64` becomes `JsonAsInt64(X)` and
+  `FTagFilterRegex.Replace(X, EscapedLessThan)` becomes
+  `FilterDisallowedTags(X)`. All three rewrites are unconditional, all three
+  compile in Delphi too, and all three are *checked*: if a call site stops
+  matching, the transformation fails loudly instead of silently leaving the RTL
+  behaviour in place. See *Compiler and vcl-compat divergences* below for what
+  each one repairs.
 
 `porttree.py` runs that over the whole tree, compiles every unit in one pass and
 feeds FPC's diagnostics back in, round after round, until the tree is clean. A
@@ -208,15 +209,16 @@ Delphi; conversion happens only at the LCL boundary.
 
 ## Compiler and vcl-compat divergences
 
-Four FPC behaviours would change the *output* rather than fail to compile. They
-are all repaired in `Source\Fpc`, so `Source\Core` and `Source\Layout` stay
-untouched:
+Four FPC behaviours would change the *output* rather than fail to compile, and
+one fails at run time. They are all repaired in `Source\Fpc`, so `Source\Core`
+and `Source\Layout` stay untouched:
 
 | Divergence | Symptom | Fix |
 |------------|---------|-----|
 | No widestring manager is installed by default, so `TEncoding.UTF8.GetBytes`/`UTF8Encode` degrade to one byte per UTF-16 code unit | every non-ASCII link destination is percent-encoded wrong (`/f%F6%F6` instead of `/f%C3%B6%C3%B6`); the CommonMark corpus catches two examples | `Markdown4D.Fpc.Compat` links `fpwidestring`, the pure-Pascal manager Lazarus itself uses, next to `fpmonitor` |
 | `TStringHelper.ToLower`/`ToUpper` (and the `...Invariant` pair) are built on `SysUtils.LowerCase`/`UpperCase`, which only know ASCII | Greek and sharp-S link labels stop matching their references (two more corpus examples) | `Markdown4D.Fpc.CompatImpl` declares a string helper that *derives* from the RTL's and replaces only those four methods, mapping through the manager's Unicode tables |
 | vcl-compat's `TJSONParser.Parse` returns an **unassigned** result for invalid JSON unless the `RaiseExc` option is set | `TJSONObject.ParseJSONValue` hands back a garbage pointer where Delphi returns `nil`, and `Root.Free` then crashes | `Markdown4D.Fpc.Json.ParseJsonOrNil` parses with `RaiseExc` and turns the exception into `nil`; the transformer retargets the call sites |
+| vcl-compat's `TJSONNumber.GetAsInt64` parses the number's text with the **32-bit** `StrToInt` wherever `Char` is one byte | a value above `High(Integer)` cannot be read back, and every opaque ARGB color is one: scaling the theme — what a zoom step does, through `SaveToJson`/`LoadFromJson` — dies with `"4280230696" is an invalid integer` | `Markdown4D.Fpc.Json.JsonAsInt64` reads the number's own text with `StrToInt64`; the transformer retargets the `AsInt64` reads |
 | FPC's regex engine (bare `regexpr`, behind vcl-compat's `System.RegularExpressions`) does not honour a bare lookahead, so the GFM tag-filter pattern consumes the tag it should only inspect | `<xmp> is disallowed.  <XMP> is...` collapses to `&lt;x&lt;XMP> is...`; the GFM corpus catches it | `Markdown4D.Fpc.Compat.FilterDisallowedTags` performs the same scan without a regex; the transformer retargets the call site |
 
 The first two are invisible in the LCL apps, which get a manager from the
