@@ -72,6 +72,9 @@ type
       FLifetime: IMarkdownViewerLifetime;
       FImages: TMarkdownViewerImageSettings;
       FDocumentFolder: string;
+      // The base URL and document folder the loaded images were resolved
+      // against, so a change of either is noticed on the next Text assignment.
+      FLastImageBase: string;
       FImageDownloader: TMarkdownImageDownloader;
       FRequestedImageSources: TDictionary<string, Boolean>;
       FTheme: TMarkdownTheme;
@@ -171,6 +174,7 @@ type
     procedure PopupContextMenu(const X, Y: Single);
     procedure HandleContextItemClick(Sender: TObject);
     function HandleKey(const Key: Word; const Shift: TShiftState): Boolean;
+    procedure DropStaleImages;
     procedure ResolvePendingImages;
     procedure ResolvePendingImage(const Source: string);
     function TryResolveImageThroughEvent(const Source, Url: string): Boolean;
@@ -257,6 +261,9 @@ type
     // rendered from, so an editor can put its own selection on those same
     // characters before a formatting command runs.
     function TryGetSelectionSourceSegment(out Segment: TMarkdownSegment): Boolean;
+    // Forgets every image the document named and asks for them again: a retry
+    // after a failure, and a way to pick up a file that changed on disk.
+    procedure ReloadImages;
     property Theme: TMarkdownTheme read FTheme write SetTheme;
     property ContentHeight: Integer read GetContentHeight;
     property ScrollOffset: Single read GetScrollOffset write SetScrollPosition;
@@ -1505,6 +1512,50 @@ begin
   Painter.DrawTextRun(TLayoutPointF.Create(Tx, Ty), Caption, Font, LabelColor);
 end;
 
+// A relative image resolves against the base URL or the document folder, so
+// when either changes -- another document, another base the application set --
+// the graphic the slot holds belongs to what was open before. The slot is
+// forgotten and the painted graphic dropped, and the layout that follows asks
+// for the source again, which now resolves somewhere else. Remote and rooted
+// sources resolve the same under any base, so they stay loaded and switching
+// documents does not fetch them again.
+procedure TMarkdownViewer.DropStaleImages;
+var
+  Base: string;
+  Source: string;
+begin
+  Base := FImages.BaseUrl + #1 + FDocumentFolder;
+  if Base = FLastImageBase then
+    Exit;
+
+  FLastImageBase := Base;
+
+  for Source in FModel.ImageSources do
+    if TMarkdownViewerShared.IsRelativeImageSource(Source) then
+    begin
+      FModel.ForgetImage(Source);
+      FLoadedImages.Remove(Source);
+    end;
+end;
+
+procedure TMarkdownViewer.ReloadImages;
+begin
+  FImageDownloader.CancelPending;
+  FRequestedImageSources.Clear;
+
+  for var Source in FModel.ImageSources do
+  begin
+    FModel.ForgetImage(Source);
+    FLoadedImages.Remove(Source);
+  end;
+
+  // The layout registers the sources it still finds and puts them back in the
+  // queue, whether their slot had failed, loaded or never been asked for.
+  FModel.RefreshLayout;
+  ResolvePendingImages;
+  RedrawContent;
+end;
+
 procedure TMarkdownViewer.ResolvePendingImages;
 begin
   for var Source in FModel.PendingImageSources do
@@ -1784,6 +1835,7 @@ begin
   FDesignSampleActive := False;
   FImageDownloader.CancelPending;
   FRequestedImageSources.Clear;
+  DropStaleImages;
   ClearCodeHover;
   FModel.Text := Value;
   FModel.ScrollOffset := 0;

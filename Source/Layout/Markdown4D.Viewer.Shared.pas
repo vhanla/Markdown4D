@@ -20,6 +20,10 @@ type
     // family instead of the proportional UI font.
     class function IsMonospaceFamilyName(const FamilyName: string): Boolean;
     class function IsHttpUrl(const Url: string): Boolean;
+    // True when the source is resolved against the base URL or the folder the
+    // document came from, so a change of either makes it name a different
+    // file. A remote address or a rooted path stands on its own.
+    class function IsRelativeImageSource(const Source: string): Boolean;
     class function TryResolveImageUrl(const Source, BaseUrl, DocumentFolder: string;
       out Url: string): Boolean; overload;
     class function TryResolveImageUrl(const Source, BaseUrl, DocumentFolder: string;
@@ -95,6 +99,16 @@ end;
 class function TMarkdownViewerShared.IsHttpUrl(const Url: string): Boolean;
 begin
   Result := Url.StartsWith(HttpSchemePrefix, True) or Url.StartsWith(HttpsSchemePrefix, True);
+end;
+
+// The same rule TryResolveImageUrl applies when it decides whether to combine a
+// source with a base: a scheme carries its own destination, and a rooted path
+// is already absolute, so neither moves when the base does. An empty source
+// names nothing at all.
+class function TMarkdownViewerShared.IsRelativeImageSource(const Source: string): Boolean;
+begin
+  Result := (Source <> '') and not Source.Contains(UrlSchemeSeparator) and
+    not TPath.IsPathRooted(Source);
 end;
 
 class function TMarkdownViewerShared.TryResolveImageUrl(const Source, BaseUrl, DocumentFolder: string;

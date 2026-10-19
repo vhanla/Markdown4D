@@ -554,6 +554,7 @@ same.
 | `ScrollToAnchor(const Anchor: string): Boolean` | Scroll the heading a link such as `#getting-started` points at to the top of the view. Anchors follow GitHub: lower case, punctuation dropped, accented letters kept, every space a dash, and a repeated heading gets `-1`, `-2`. A percent-encoded anchor is decoded first. `False` when the document has no such heading |
 | `SourceLineToScrollOffset(const SourceLine: Integer): Single` / `ScrollOffsetToSourceLine(const Offset: Single): Integer` | Where a line of `Text` shows, as the `ScrollOffset` that brings it to the top, and which line shows at an offset, so a host with its own editor can keep it in step with the viewer. Lines count from 0. Every rendered line knows the source line it came from, inside long lists, tables and code blocks too; between them the answer is interpolated |
 | `LayoutCount: Integer` | Advances on every relayout (first width, resize, arriving images), so a host can notice layout-derived state going stale |
+| `ReloadImages` | Forget every image the document named and ask for them again: a retry after a failure, and a way to pick up a file that changed on disk |
 | `DisplayList: IMarkdownDisplayList` | The rendered primitives, for advanced hosts |
 
 ### Events
@@ -641,6 +642,15 @@ Opening a document fetches every remote image it names, which tells those hosts
 that the document was read. An application showing documents it did not write
 should decide what it wants here: clear `AllowRemote` to fetch nothing, or leave
 it on and refuse individual addresses through `OnRemoteImageRequest`.
+
+A change of `BaseUrl` -- and loading another document, which sets the folder
+the viewer resolves against -- is noticed on the next `Text` assignment: the
+sources that resolve against the base are dropped and asked for again, so a
+relative name never keeps the picture the base it came from gave it. Remote and
+rooted sources resolve the same under any base, so switching documents does not
+fetch them again. An image that failed to load is not retried by itself: call
+`ReloadImages` to ask for every image again, which is also how a change of
+`AllowRemote` reaches images that were already refused or loaded.
 
 ```pascal
 procedure TMainForm.ViewerRemoteImageRequest(const Sender: TObject; const Url: string;

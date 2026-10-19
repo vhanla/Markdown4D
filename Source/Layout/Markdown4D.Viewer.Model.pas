@@ -216,6 +216,11 @@ type
     function SourceLineToScrollOffset(const SourceLine: Integer): Single;
     function ScrollOffsetToSourceLine(const Offset: Single): Integer;
     function PendingImageSources: TArray<string>;
+    // Every source the layout has asked about, in the order it met them. A
+    // viewer uses it to drop the ones a new document base invalidates.
+    function ImageSources: TArray<string>;
+    // Drops the slot a source holds, so the next layout asks for it again.
+    procedure ForgetImage(const Source: string);
     procedure NotifyImageArrived(const Source: string; const Size: TLayoutSizeF);
     procedure NotifyImageFailed(const Source: string);
     function ImageSlotState(const Source: string): TMarkdownImageSlotState;
@@ -1030,6 +1035,20 @@ begin
     if FImageSlots[Source].State = TMarkdownImageSlotState.Requested then
       Result := Result + [Source];
   end;
+end;
+
+function TMarkdownViewerModel.ImageSources: TArray<string>;
+begin
+  Result := [];
+
+  for var Source in FImageSlotOrder do
+    Result := Result + [Source];
+end;
+
+procedure TMarkdownViewerModel.ForgetImage(const Source: string);
+begin
+  FImageSlots.Remove(Source);
+  FImageSlotOrder.Remove(Source);
 end;
 
 procedure TMarkdownViewerModel.NotifyImageArrived(const Source: string; const Size: TLayoutSizeF);

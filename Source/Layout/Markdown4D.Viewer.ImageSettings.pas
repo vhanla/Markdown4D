@@ -29,6 +29,11 @@ type
     procedure Assign(Source: TPersistent); override;
 
   published
+    // What a relative destination in the document is resolved against, either
+    // a folder path ("C:\docs") or a server ("https://host/dir/"). Left empty,
+    // relative paths are handed to the file system as they are written.
+    // A change is noticed on the next Text assignment, which is also when the
+    // images resolved under the previous value are dropped and asked for again.
     property BaseUrl: string read FBaseUrl write FBaseUrl;
     // Whether http and https destinations may be fetched. Opening a document
     // tells every host it names that the document was read, so an application
