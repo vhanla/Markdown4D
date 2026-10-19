@@ -107,6 +107,7 @@ type
     function EscapeRawHtml: IMarkdownPipelineBuilder;
     function AllowUrlSchemes(const Schemes: array of string): IMarkdownPipelineBuilder;
     function NoOpenerLinks: IMarkdownPipelineBuilder;
+    function HeadingAnchors: IMarkdownPipelineBuilder;
     function RegisterBlockParser(const Parser: IMarkdownBlockParser; const TriggerCharacters: string;
                                  const Priority: Integer): IMarkdownPipelineBuilder;
     function RegisterInlineParser(const Parser: IMarkdownInlineParser; const TriggerCharacters: string;
@@ -325,6 +326,13 @@ end;
 function TMarkdownPipelineBuilder.NoOpenerLinks: IMarkdownPipelineBuilder;
 begin
   FOptions.NoOpenerLinks := True;
+
+  Result := Self;
+end;
+
+function TMarkdownPipelineBuilder.HeadingAnchors: IMarkdownPipelineBuilder;
+begin
+  FOptions.HeadingAnchors := True;
 
   Result := Self;
 end;

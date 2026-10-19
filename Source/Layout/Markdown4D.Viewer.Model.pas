@@ -13,6 +13,7 @@ uses
   Markdown4D.Layout.SourceLineMap,
   Markdown4D.Layout.TextAnchor,
   Markdown4D.Layout.TextSearch,
+  Markdown4D.Toc,
   Markdown4D.Theme;
 
 type
@@ -80,6 +81,8 @@ type
       FScrollOffset: Single;
       FDisplayList: IMarkdownDisplayList;
       FDocument: IMarkdownDocument;
+      // The outline of FDocument, built on first use and dropped with it.
+      FToc: IMarkdownToc;
       FLayoutCount: Integer;
       FLastLayoutMilliseconds: Int64;
       FShouldAutoFollow: Boolean;
@@ -215,6 +218,11 @@ type
     // between its neighbours.
     function SourceLineToScrollOffset(const SourceLine: Integer): Single;
     function ScrollOffsetToSourceLine(const Offset: Single): Integer;
+    // The document's outline: its headings in reading order, each with the
+    // caption, the level, the anchor an in-page #link names it by and the line
+    // of the source it was written on. Built once per layout, so a host can ask
+    // for it on every change; nil until the first one.
+    function Toc: IMarkdownToc;
     function PendingImageSources: TArray<string>;
     // Every source the layout has asked about, in the order it met them. A
     // viewer uses it to drop the ones a new document base invalidates.
@@ -302,7 +310,6 @@ uses
   Markdown4D.Layout.HitTest,
   Markdown4D.Layout.SourceMapping,
   Markdown4D.Layout.SelectedMarkdown,
-  Markdown4D.Toc,
   Markdown4D.Layout.Zoom;
 
 class function TMarkdownFoundRange.Create(const ItemIndex, StartCharacter,
@@ -884,6 +891,18 @@ function TMarkdownViewerModel.SourceLineToScrollOffset(const SourceLine: Integer
 begin
   RefreshSourceLines;
   Result := FSourceLines.SourceLineToOffset(SourceLine);
+end;
+
+function TMarkdownViewerModel.Toc: IMarkdownToc;
+begin
+  Result := nil;
+  if FDocument = nil then
+    Exit;
+
+  if FToc = nil then
+    FToc := TMarkdownToc.FromDocument(FDocument);
+
+  Result := FToc;
 end;
 
 function TMarkdownViewerModel.ScrollOffsetToSourceLine(const Offset: Single): Integer;
@@ -1517,6 +1536,7 @@ begin
   const Document = TMarkdown.Parse(FText, TMarkdownDialect.Gfm);
   TLayoutDocumentProcessorRegistry.Process(Document, Self);
   FDocument := Document;
+  FToc := nil;
   RefreshZoomedTheme;
 
   FDisplayList := TMarkdownLayoutEngine.LayoutDocument(Document, FViewportWidth, LayoutTheme, FMeasurer, Self,

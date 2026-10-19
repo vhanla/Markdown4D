@@ -10,6 +10,7 @@ uses
   System.RegularExpressions,
   Markdown4D.Extensions.Interfaces,
   Markdown4D.Pipeline.Configuration,
+  Markdown4D.Toc,
   Markdown4D.Ast.Interfaces;
 
 type
@@ -25,6 +26,9 @@ type
     const
       LanguageClassFormat = ' class="language-%s"';
       HeadingOpenFormat = '<h%d>';
+      // The same heading, named with the anchor the table of contents gives it
+      // (see TMarkdownRendererOptions.HeadingAnchors).
+      HeadingAnchorFormat = '<h%d id="%s">';
       HeadingCloseFormat = '</h%d>';
       OrderedListStartFormat = '<ol start="%d">';
       AnchorOpenFormat = '<a href="%s"';
@@ -77,6 +81,10 @@ type
       FHooks: TDictionary<string, IMarkdownRendererHook>;
       FWriter: IMarkdownHtmlWriter;
       FTagFilterRegex: TRegEx;
+      // Names the headings, when FOptions.HeadingAnchors asks for it, in the
+      // same reading order -- and with the same anchors -- as the table of
+      // contents.
+      FAnchors: TMarkdownAnchors;
     procedure Render(const Document: IMarkdownDocument);
     procedure EnterNode(const Node: IMarkdownNode);
     procedure LeaveNode(const Task: TRenderTask);
@@ -181,12 +189,16 @@ begin
   FTasks := TStack<TRenderTask>.Create;
   FWriter := TRendererHtmlWriter.Create(FOutput);
 
+  if FOptions.HeadingAnchors then
+    FAnchors := TMarkdownAnchors.Create;
+
   if FOptions.ApplyTagFilter then
     FTagFilterRegex := TRegEx.Create(DisallowedTagPattern, [roIgnoreCase]);
 end;
 
 destructor TMarkdownHtmlRenderer.Destroy;
 begin
+  FAnchors.Free;
   FTasks.Free;
   FOutput.Free;
 
@@ -308,9 +320,20 @@ begin
 end;
 
 procedure TMarkdownHtmlRenderer.EnterHeading(const Node: IMarkdownHeading);
+var
+  Anchor: string;
 begin
   AppendLineBreak;
-  FOutput.Append(Format(HeadingOpenFormat, [Node.Level]));
+  // The caption is read off the node, not out of the output: the inline
+  // children are rendered after this.
+  Anchor := '';
+  if FOptions.HeadingAnchors then
+    Anchor := FAnchors.ReserveHeading(Node);
+
+  if Anchor = '' then
+    FOutput.Append(Format(HeadingOpenFormat, [Node.Level]))
+  else
+    FOutput.Append(Format(HeadingAnchorFormat, [Node.Level, Anchor]));
 
   Inc(FInlineDepth);
   ScheduleLeaveAndChildren(Node, FTightList);

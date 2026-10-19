@@ -20,6 +20,9 @@ type
     property Caption: string read GetCaption;
     property Level: Integer read GetLevel;
     property Anchor: string read GetAnchor;
+    // The line of the source the heading was written on, counted from 1 as the
+    // parser counts lines -- not from 0 as TMarkdownSourceLineMap and
+    // SourceLineToScrollOffset do, so subtract 1 before handing it to those.
     property SourceLine: Integer read GetSourceLine;
     property ChildCount: Integer read GetChildCount;
     property Children[const Index: Integer]: IMarkdownTocEntry read GetChild;
@@ -41,6 +44,33 @@ type
     // FromDocument gives the headings.
     class function TryFindHeading(const Document: IMarkdownDocument; const Anchor: string;
                                   out Heading: IMarkdownHeading): Boolean;
+  end;
+
+  // The anchors headings are named with. The table of contents and the HTML
+  // renderer -- when it is asked for heading anchors -- hand captions to one of
+  // these, so an outline entry, an in-page #link and an id all name the same
+  // heading: the caption lower-cased, its letters, digits and underscores kept,
+  // its spaces and dashes written as dashes, and a number appended once a
+  // caption is used again. One of these remembers the captions it has seen, so
+  // headings are named in the order the document reads.
+  TMarkdownAnchors = class
+  private
+    const
+      CaptionSeparator = ' ';
+      AnchorDash = '-';
+      AnchorSuffixFormat = '%s-%d';
+    var
+      FUsage: TDictionary<string, Integer>;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    // The plain text of a heading: its inline formatting, images and link
+    // destinations taken off, its line breaks read as spaces.
+    class function CaptionOf(const Heading: IMarkdownNode): string; static;
+    class function Slugify(const Caption: string): string; static;
+    // The anchor the caption takes, remembering the ones handed out before.
+    function Reserve(const Caption: string): string;
+    function ReserveHeading(const Heading: IMarkdownNode): string;
   end;
 
 implementation
@@ -87,20 +117,12 @@ type
 
   TMarkdownTocBuilder = class
   private
-    const
-      CaptionSeparator = ' ';
-      AnchorDash = '-';
-      AnchorSuffixFormat = '%s-%d';
     var
       FToc: TMarkdownTocInstance;
       FOpenEntries: TList<TMarkdownTocEntry>;
-      FAnchorUsage: TDictionary<string, Integer>;
+      FAnchors: TMarkdownAnchors;
     class function HeadingsInOrder(const Document: IMarkdownDocument): TArray<IMarkdownHeading>;
     procedure AddHeading(const Heading: IMarkdownHeading);
-    class function ExtractCaption(const Heading: IMarkdownNode): string;
-    function ReserveAnchor(const Caption: string): string;
-    class function Slugify(const Caption: string): string;
-    class procedure PushChildrenReversed(const Pending: TStack<IMarkdownNode>; const Node: IMarkdownNode);
 
   public
     constructor Create;
@@ -142,15 +164,111 @@ begin
   inherited Create;
 
   FOpenEntries := TList<TMarkdownTocEntry>.Create;
-  FAnchorUsage := TDictionary<string, Integer>.Create;
+  FAnchors := TMarkdownAnchors.Create;
 end;
 
 destructor TMarkdownTocBuilder.Destroy;
 begin
-  FAnchorUsage.Free;
+  FAnchors.Free;
   FOpenEntries.Free;
 
   inherited Destroy;
+end;
+
+constructor TMarkdownAnchors.Create;
+begin
+  inherited Create;
+
+  FUsage := TDictionary<string, Integer>.Create;
+end;
+
+destructor TMarkdownAnchors.Destroy;
+begin
+  FUsage.Free;
+
+  inherited Destroy;
+end;
+
+// A document is walked in reading order by pushing the children of a node back
+// to front, so the top of the stack is what comes next.
+procedure PushChildrenReversed(const Pending: TStack<IMarkdownNode>; const Node: IMarkdownNode);
+begin
+  for var Index := Node.ChildCount - 1 downto 0 do
+  begin
+    Pending.Push(Node.Children[Index]);
+  end;
+end;
+
+class function TMarkdownAnchors.Slugify(const Caption: string): string;
+begin
+  const Slug = TStringBuilder.Create;
+  try
+    for var CaptionChar in Caption.ToLower do
+    begin
+      const KeepsCharacter = CaptionChar.IsLetterOrDigit or (CaptionChar = '_');
+      const BecomesDash = (CaptionChar = CaptionSeparator) or (CaptionChar = AnchorDash);
+
+      if KeepsCharacter then
+        Slug.Append(CaptionChar)
+      else if BecomesDash then
+        Slug.Append(AnchorDash);
+    end;
+
+    Result := Slug.ToString;
+  finally
+    Slug.Free;
+  end;
+end;
+
+function TMarkdownAnchors.Reserve(const Caption: string): string;
+begin
+  const Anchor = Slugify(Caption);
+
+  var UsedCount: Integer;
+  if not FUsage.TryGetValue(Anchor, UsedCount) then
+    UsedCount := 0;
+  FUsage.AddOrSetValue(Anchor, UsedCount + 1);
+
+  if UsedCount = 0 then
+  begin
+    Result := Anchor;
+    Exit;
+  end;
+
+  Result := Format(AnchorSuffixFormat, [Anchor, UsedCount]);
+end;
+
+function TMarkdownAnchors.ReserveHeading(const Heading: IMarkdownNode): string;
+begin
+  Result := Reserve(CaptionOf(Heading));
+end;
+
+class function TMarkdownAnchors.CaptionOf(const Heading: IMarkdownNode): string;
+begin
+  const CaptionText = TStringBuilder.Create;
+  const Pending = TStack<IMarkdownNode>.Create;
+  try
+    PushChildrenReversed(Pending, Heading);
+
+    while Pending.Count > 0 do
+    begin
+      const Current = Pending.Pop;
+
+      case Current.Kind of
+        TMarkdownNodeKind.Text, TMarkdownNodeKind.CodeSpan, TMarkdownNodeKind.Math:
+          CaptionText.Append((Current as IMarkdownText).Literal);
+        TMarkdownNodeKind.SoftLineBreak, TMarkdownNodeKind.HardLineBreak:
+          CaptionText.Append(CaptionSeparator);
+      else
+        PushChildrenReversed(Pending, Current);
+      end;
+    end;
+
+    Result := CaptionText.ToString;
+  finally
+    Pending.Free;
+    CaptionText.Free;
+  end;
 end;
 
 function TMarkdownTocBuilder.Build(const Document: IMarkdownDocument): IMarkdownToc;
@@ -174,8 +292,8 @@ begin
 
   for var Candidate in HeadingsInOrder(Document) do
   begin
-    const Caption = ExtractCaption(Candidate);
-    const IsTarget = (ReserveAnchor(Caption) = Anchor);
+    const Caption = TMarkdownAnchors.CaptionOf(Candidate);
+    const IsTarget = (FAnchors.Reserve(Caption) = Anchor);
     if IsTarget then
     begin
       Heading := Candidate;
@@ -213,8 +331,8 @@ end;
 
 procedure TMarkdownTocBuilder.AddHeading(const Heading: IMarkdownHeading);
 begin
-  const Caption = ExtractCaption(Heading);
-  const Anchor = ReserveAnchor(Caption);
+  const Caption = TMarkdownAnchors.CaptionOf(Heading);
+  const Anchor = FAnchors.Reserve(Caption);
   const Entry = TMarkdownTocEntry.Create(Caption, Anchor, Heading.Level, Heading.SourceLine);
   const Added: IMarkdownTocEntry = Entry;
 
@@ -229,82 +347,6 @@ begin
     FOpenEntries.Last.AddChild(Added);
 
   FOpenEntries.Add(Entry);
-end;
-
-class function TMarkdownTocBuilder.ExtractCaption(const Heading: IMarkdownNode): string;
-begin
-  const CaptionText = TStringBuilder.Create;
-  const Pending = TStack<IMarkdownNode>.Create;
-  try
-    PushChildrenReversed(Pending, Heading);
-
-    while Pending.Count > 0 do
-    begin
-      const Current = Pending.Pop;
-
-      case Current.Kind of
-        TMarkdownNodeKind.Text, TMarkdownNodeKind.CodeSpan, TMarkdownNodeKind.Math:
-          CaptionText.Append((Current as IMarkdownText).Literal);
-        TMarkdownNodeKind.SoftLineBreak, TMarkdownNodeKind.HardLineBreak:
-          CaptionText.Append(CaptionSeparator);
-      else
-        PushChildrenReversed(Pending, Current);
-      end;
-    end;
-
-    Result := CaptionText.ToString;
-  finally
-    Pending.Free;
-    CaptionText.Free;
-  end;
-end;
-
-function TMarkdownTocBuilder.ReserveAnchor(const Caption: string): string;
-begin
-  const Anchor = Slugify(Caption);
-
-  var UsedCount: Integer;
-  if not FAnchorUsage.TryGetValue(Anchor, UsedCount) then
-    UsedCount := 0;
-  FAnchorUsage.AddOrSetValue(Anchor, UsedCount + 1);
-
-  if UsedCount = 0 then
-  begin
-    Result := Anchor;
-    Exit;
-  end;
-
-  Result := Format(AnchorSuffixFormat, [Anchor, UsedCount]);
-end;
-
-class function TMarkdownTocBuilder.Slugify(const Caption: string): string;
-begin
-  const Slug = TStringBuilder.Create;
-  try
-    for var CaptionChar in Caption.ToLower do
-    begin
-      const KeepsCharacter = CaptionChar.IsLetterOrDigit or (CaptionChar = '_');
-      const BecomesDash = (CaptionChar = CaptionSeparator) or (CaptionChar = AnchorDash);
-
-      if KeepsCharacter then
-        Slug.Append(CaptionChar)
-      else if BecomesDash then
-        Slug.Append(AnchorDash);
-    end;
-
-    Result := Slug.ToString;
-  finally
-    Slug.Free;
-  end;
-end;
-
-class procedure TMarkdownTocBuilder.PushChildrenReversed(const Pending: TStack<IMarkdownNode>;
-                                                         const Node: IMarkdownNode);
-begin
-  for var Index := Node.ChildCount - 1 downto 0 do
-  begin
-    Pending.Push(Node.Children[Index]);
-  end;
 end;
 
 constructor TMarkdownTocEntry.Create(const Caption, Anchor: string; const Level, SourceLine: Integer);

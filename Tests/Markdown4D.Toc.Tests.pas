@@ -23,6 +23,12 @@ type
         '## Getting *Started*'#10;
       GettingStartedCaption = 'Getting Started';
     class function BuildToc: IMarkdownToc;
+    // The anchors the outline gives every heading of SampleDocument, flattened
+    // in reading order, and the ids read back out of rendered HTML.
+    class function OutlineAnchors: TArray<string>;
+    class function RenderedIds(const Html: string): TArray<string>;
+    // A single string for what the two lists say, so a mismatch shows both.
+    class function Joined(const Values: TArray<string>): string;
 
   public
     [Test]
@@ -51,14 +57,31 @@ type
 
     [Test]
     procedure TryFindHeading_UnknownAnchor_ReturnsFalse;
+
+    // The renderer and the table of contents both hand captions to
+    // TMarkdownAnchors, so the ids it writes are the anchors the outline and an
+    // in-page #link name the same headings by. Off by default, because the
+    // conformance corpora compare the rendered HTML byte for byte.
+    [Test]
+    procedure Renderer_HeadingAnchorsOff_WritesNoIds;
+
+    [Test]
+    procedure Renderer_HeadingAnchorsOn_WritesTheAnchorsTheTocGives;
+
+    [Test]
+    procedure Renderer_HeadingAnchorsOn_ChangesNothingElse;
   end;
 
 implementation
 
 uses
+  System.Generics.Collections,
   Markdown4D,
   Markdown4D.Defines,
-  Markdown4D.Ast.Interfaces;
+  Markdown4D.Ast.Interfaces,
+  Markdown4D.Extensions.Interfaces,
+  Markdown4D.Pipeline,
+  Markdown4D.Pipeline.Configuration;
 
 procedure TMarkdownTocTests.FromDocument_SampleDocument_BuildsNestedHeadingTree;
 begin
@@ -192,6 +215,126 @@ begin
   const Document = TMarkdown.Parse(SampleDocument);
 
   Result := TMarkdownToc.FromDocument(Document);
+end;
+
+// The anchors the outline gives every heading of SampleDocument, flattened in
+// reading order.
+class function TMarkdownTocTests.OutlineAnchors: TArray<string>;
+var
+  Anchors: TList<string>;
+
+  procedure Walk(const Entry: IMarkdownTocEntry);
+  var
+    Index: Integer;
+  begin
+    Anchors.Add(Entry.Anchor);
+    for Index := 0 to Entry.ChildCount - 1 do
+      Walk(Entry.Children[Index]);
+  end;
+
+var
+  Index: Integer;
+begin
+  Anchors := TList<string>.Create;
+  try
+    const Toc = BuildToc;
+    for Index := 0 to Toc.EntryCount - 1 do
+      Walk(Toc.Entries[Index]);
+    Result := Anchors.ToArray;
+  finally
+    Anchors.Free;
+  end;
+end;
+
+// The id of every heading element, in order, read back out of the HTML.
+class function TMarkdownTocTests.RenderedIds(const Html: string): TArray<string>;
+var
+  Ids: TList<string>;
+  Position, TagEnd, IdStart, IdEnd: Integer;
+  Remaining, Tag: string;
+begin
+  Ids := TList<string>.Create;
+  try
+    Remaining := Html;
+    while True do
+    begin
+      Position := Remaining.IndexOf('<h');
+      if Position < 0 then
+        Break;
+      Remaining := Remaining.Substring(Position);
+      TagEnd := Remaining.IndexOf('>');
+      if TagEnd < 0 then
+        Break;
+
+      Tag := Remaining.Substring(0, TagEnd + 1);
+      IdStart := Tag.IndexOf(' id="');
+      IdEnd := -1;
+      if IdStart >= 0 then
+        IdEnd := Tag.IndexOf('"', IdStart + 5);
+      if (IdStart >= 0) and (IdEnd > IdStart + 5) then
+        Ids.Add(Tag.Substring(IdStart + 5, IdEnd - IdStart - 5))
+      else
+        Ids.Add('');
+
+      Remaining := Remaining.Substring(TagEnd + 1);
+    end;
+
+    Result := Ids.ToArray;
+  finally
+    Ids.Free;
+  end;
+end;
+
+class function TMarkdownTocTests.Joined(const Values: TArray<string>): string;
+var
+  Text: TStringBuilder;
+begin
+  Text := TStringBuilder.Create;
+  try
+    for var Value in Values do
+      Text.Append(Value).Append('|');
+    Result := Text.ToString;
+  finally
+    Text.Free;
+  end;
+end;
+
+procedure TMarkdownTocTests.Renderer_HeadingAnchorsOff_WritesNoIds;
+begin
+  const Html = TMarkdown.ToUnsafeHtml(SampleDocument, TMarkdownDialect.Gfm);
+
+  for var Id in RenderedIds(Html) do
+    Assert.AreEqual('', Id, 'the shared pipelines must not name the headings');
+
+  Assert.IsTrue(Html.Contains('<h2>Getting <em>Started</em></h2>'));
+end;
+
+procedure TMarkdownTocTests.Renderer_HeadingAnchorsOn_WritesTheAnchorsTheTocGives;
+begin
+  const Pipeline = TMarkdownPipeline.Create.UseCommonMark.UseGfm.UnsafeHtml.UnsafeLinks.HeadingAnchors.Build;
+  const Html = Pipeline.ToHtml(SampleDocument);
+
+  Assert.AreEqual(Joined(OutlineAnchors), Joined(RenderedIds(Html)));
+  Assert.IsTrue(Html.Contains('<h2 id="getting-started">Getting <em>Started</em></h2>'));
+end;
+
+procedure TMarkdownTocTests.Renderer_HeadingAnchorsOn_ChangesNothingElse;
+begin
+  const Pipeline = TMarkdownPipeline.Create.UseCommonMark.UseGfm.UnsafeHtml.UnsafeLinks.HeadingAnchors.Build;
+  const Anchored = Pipeline.ToHtml(SampleDocument);
+  const Plain = TMarkdown.ToUnsafeHtml(SampleDocument, TMarkdownDialect.Gfm);
+
+  // Taking the ids out again gives the default rendering, byte for byte.
+  var Stripped := Anchored;
+  var Position := Stripped.IndexOf(' id="');
+  while Position >= 0 do
+  begin
+    const IdEnd = Stripped.IndexOf('"', Position + 5);
+    Stripped := Stripped.Remove(Position, IdEnd + 1 - Position);
+    Position := Stripped.IndexOf(' id="', Position);
+  end;
+
+  Assert.AreEqual(Plain, Stripped);
 end;
 
 end.

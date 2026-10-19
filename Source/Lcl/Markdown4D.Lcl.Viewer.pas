@@ -58,6 +58,7 @@ uses
   Markdown4D.Ast.Interfaces,
   Markdown4D.Layout.Interfaces,
   Markdown4D.Layout.DisplayList,
+  Markdown4D.Toc,
   Markdown4D.Theme,
   Markdown4D.Viewer.Model,
   Markdown4D.Layout.TextSearch,
@@ -290,6 +291,11 @@ type
     // can keep both in step. Lines count from 0.
     function SourceLineToScrollOffset(const SourceLine: Integer): Single;
     function ScrollOffsetToSourceLine(const Offset: Single): Integer;
+    // The document's outline: its headings in reading order, each with the
+    // caption, the level, the anchor an in-page #link names it by and the line
+    // of the source it was written on, so a host can show one beside the
+    // preview. Built once per layout; nil before the first one.
+    function Toc: IMarkdownToc;
     // The markdown behind the selection: within one line with the markup
     // around it, over several lines whole lines, a table whole.
     property SelectedMarkdown: string read GetSelectedMarkdown;
@@ -1114,6 +1120,11 @@ end;
 function TMarkdownViewer.ScrollOffsetToSourceLine(const Offset: Single): Integer;
 begin
   Result := FModel.ScrollOffsetToSourceLine(Offset);
+end;
+
+function TMarkdownViewer.Toc: IMarkdownToc;
+begin
+  Result := FModel.Toc;
 end;
 
 function TMarkdownViewer.ScrollToAnchor(const Anchor: string): Boolean;

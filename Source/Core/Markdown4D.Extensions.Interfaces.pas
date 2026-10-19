@@ -133,6 +133,8 @@ type
     function EscapeRawHtml: IMarkdownPipelineBuilder;
     function AllowUrlSchemes(const Schemes: array of string): IMarkdownPipelineBuilder;
     function NoOpenerLinks: IMarkdownPipelineBuilder;
+    // See TMarkdownRendererOptions.HeadingAnchors.
+    function HeadingAnchors: IMarkdownPipelineBuilder;
     function RegisterBlockParser(const Parser: IMarkdownBlockParser; const TriggerCharacters: string; const Priority: Integer): IMarkdownPipelineBuilder;
     function RegisterInlineParser(const Parser: IMarkdownInlineParser; const TriggerCharacters: string; const Priority: Integer): IMarkdownPipelineBuilder;
     function RegisterDelimiterProcessor(const Processor: IMarkdownDelimiterProcessor; const Priority: Integer): IMarkdownPipelineBuilder;

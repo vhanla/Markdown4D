@@ -23,6 +23,11 @@ type
     RestrictUrlSchemes: Boolean;
     AllowedUrlSchemes: TArray<string>;
     NoOpenerLinks: Boolean;
+    // Writes the anchor of each heading -- the one the table of contents and an
+    // in-page #link name it by, see Markdown4D.Toc -- as the id of its element,
+    // so a host can link to a heading and find it in the rendered HTML. Off by
+    // default: the conformance suites compare the output byte for byte.
+    HeadingAnchors: Boolean;
     class function SafeDefaults: TMarkdownRendererOptions; static;
     // What the CommonMark and GFM specifications describe: raw HTML and every
     // destination pass through untouched. Only appropriate for trusted input;

@@ -57,7 +57,11 @@ not produce itself.
 `ToUnsafeHtml` renders what the CommonMark and GFM specifications prescribe:
 raw HTML and every destination reach the output untouched. It is the right
 choice for trusted input, or when the result passes through an HTML sanitizer
-afterwards. The conformance suites are checked against this method.
+afterwards. The conformance suites are checked against this method, which is
+why it leaves the headings unnamed; a page that has to be linkable builds a
+pipeline with `HeadingAnchors` (see below), which writes the anchor the table
+of contents gives a heading as the `id` of its element, so a `#link` and an
+outline entry address the same one.
 
 For finer control build your own pipeline; `UnsafeHtml` and `UnsafeLinks` on the
 builder correspond to the two halves of `ToUnsafeHtml`. For untrusted input,
@@ -139,6 +143,7 @@ type
 | `UnsafeLinks` | Writes every link and image destination out, including `javascript:`, `vbscript:`, `file:` and non-image `data:` (spec behaviour). Without it those destinations are emptied |
 | `XhtmlOutput` | Emits self-closing XHTML tags |
 | `TagFilter` | Applies the GFM tag filter to raw HTML |
+| `HeadingAnchors` | Names each heading with the anchor the table of contents gives it (unit `Markdown4D.Toc`), so `#link` targets and outline entries agree. Off by default: the pipelines behind `ToHtml`/`ToUnsafeHtml` are compared byte for byte by the conformance suites and leave the headings unnamed |
 | `EscapeRawHtml` | Writes raw HTML as escaped text instead of `<!-- raw HTML omitted -->`: inline HTML where it stands, an HTML block in a paragraph. Wins over `UnsafeHtml` |
 | `AllowUrlSchemes(['http', 'https'])` | Keeps a link or image destination only when it is relative or its scheme is on the list; otherwise a link gets `href="#"` and an image an empty `src`. `//host` counts as `https`, and a GFM e-mail autolink needs `mailto`. An empty list keeps relative destinations only; a second call replaces the list; a name that is not a scheme, such as `'https://'`, raises `EMarkdownError`. The dangerous schemes stay blocked even when listed, and the list also applies after `UnsafeLinks` |
 | `NoOpenerLinks` | Adds `rel="noopener noreferrer"` to every link |
@@ -275,7 +280,10 @@ const Markdown = TMarkdown.ToMarkdown(Doc);
 Unit `Markdown4D.Toc`. `TMarkdownToc.FromDocument` walks the headings of any
 document and returns a nested `IMarkdownToc`. Each `IMarkdownTocEntry` carries
 `Caption`, `Level`, `Anchor` (a GitHub-style slug, de-duplicated with a numeric
-suffix), `SourceLine`, and nested `Children`.
+suffix), `SourceLine`, and nested `Children`. `SourceLine` counts from 1, the
+parser's way. The anchors come from one shared allocator, so they are also the
+ids a pipeline built with `HeadingAnchors` writes and the anchors the viewers'
+`ScrollToAnchor` jumps to.
 
 ```pascal
 uses
@@ -553,6 +561,7 @@ same.
 | `ScrollOffset: Single` | Read / set the vertical scroll position |
 | `ScrollToAnchor(const Anchor: string): Boolean` | Scroll the heading a link such as `#getting-started` points at to the top of the view. Anchors follow GitHub: lower case, punctuation dropped, accented letters kept, every space a dash, and a repeated heading gets `-1`, `-2`. A percent-encoded anchor is decoded first. `False` when the document has no such heading |
 | `SourceLineToScrollOffset(const SourceLine: Integer): Single` / `ScrollOffsetToSourceLine(const Offset: Single): Integer` | Where a line of `Text` shows, as the `ScrollOffset` that brings it to the top, and which line shows at an offset, so a host with its own editor can keep it in step with the viewer. Lines count from 0. Every rendered line knows the source line it came from, inside long lists, tables and code blocks too; between them the answer is interpolated |
+| `Toc: IMarkdownToc` | The outline of what is rendered: the headings of the document on screen with their captions, levels, anchors and source lines (`SourceLine` counts from 1). Built once per layout, so it is nil until the first layout has run -- a viewer that has not been given a width yet has no document, even after `Text` was set -- and it answers the layout `LayoutCount` reports. A host with its own editor uses it for a table of contents and to jump to a heading |
 | `LayoutCount: Integer` | Advances on every relayout (first width, resize, arriving images), so a host can notice layout-derived state going stale |
 | `ReloadImages` | Forget every image the document named and ask for them again: a retry after a failure, and a way to pick up a file that changed on disk |
 | `DisplayList: IMarkdownDisplayList` | The rendered primitives, for advanced hosts |
